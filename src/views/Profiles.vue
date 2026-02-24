@@ -243,7 +243,7 @@ const protocolBg = {
                 内置协议 ({{ builtins.length }})
             </h3>
             <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-                <div v-for="p in builtins" :key="p.id" class="glass-card overflow-hidden group">
+                <div v-for="p in builtins" :key="p.id" class="glass-card overflow-hidden group hover:border-white/10 transition-all cursor-pointer" @click="viewDetail(p)">
                     <!-- ★ Top banner: node types (prominent) -->
                     <div class="flex gap-0">
                         <div v-for="nt in (p.node_types || [])" :key="nt"
@@ -264,19 +264,16 @@ const protocolBg = {
                             <div class="flex items-center gap-1">
                                 <span v-if="p._has_override" class="text-[9px] px-1.5 py-0.5 rounded bg-orange-400/15 text-orange-400">已修改</span>
                                 <span class="text-[10px] px-1.5 py-0.5 rounded border border-border text-text-muted">内置</span>
+                                <button @click.stop="openEdit(p)" class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-accent transition-all ml-1" title="编辑">✏️</button>
                             </div>
                         </div>
                         <p class="text-xs text-text-muted mb-3 line-clamp-2">{{ p.description }}</p>
-                        <div class="flex gap-1.5 flex-wrap mb-3">
+                        <div class="flex gap-1.5 flex-wrap">
                             <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 font-medium"
                                   :class="protocolColors[p.protocol] || 'text-text-secondary'">{{ p.protocol }}</span>
                             <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-text-secondary">{{ p.transport }}</span>
                             <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-text-secondary">{{ p.tls_mode }}</span>
                             <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-text-muted font-mono">:{{ p.defaults?.port || 443 }}</span>
-                        </div>
-                        <div class="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button @click="openEdit(p)" class="text-[10px] px-2.5 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20 transition">✏️ 编辑</button>
-                            <button @click="viewDetail(p)" class="text-[10px] px-2.5 py-1 rounded bg-white/5 text-text-secondary hover:text-text-primary transition">🔍 详情</button>
                         </div>
                     </div>
                 </div>
@@ -290,7 +287,7 @@ const protocolBg = {
                 自定义协议 ({{ customs.length }})
             </h3>
             <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-                <div v-for="p in customs" :key="p.id" class="glass-card overflow-hidden group">
+                <div v-for="p in customs" :key="p.id" class="glass-card overflow-hidden group hover:border-white/10 transition-all cursor-pointer" @click="viewDetail(p)">
                     <!-- ★ Top banner: node types (prominent) -->
                     <div class="flex gap-0">
                         <div v-for="nt in (p.node_types || [])" :key="nt"
@@ -308,20 +305,19 @@ const protocolBg = {
                                 <span class="w-2 h-2 rounded-full" :class="protocolBg[p.protocol] || 'bg-white/30'" />
                                 <span class="font-medium text-sm">{{ p.name }}</span>
                             </div>
-                            <span class="text-[10px] px-1.5 py-0.5 rounded border border-accent/20 text-accent">自定义</span>
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-[10px] px-1.5 py-0.5 rounded border border-accent/20 text-accent">自定义</span>
+                                <button @click.stop="openEdit(p)" class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-accent transition-all ml-1" title="编辑">✏️</button>
+                                <button @click.stop="deleteProfile(p.id)" class="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-danger transition-all ml-1" title="删除">🗑️</button>
+                            </div>
                         </div>
                         <p class="text-xs text-text-muted mb-3">{{ p.description }}</p>
-                        <div class="flex gap-1.5 flex-wrap mb-3">
+                        <div class="flex gap-1.5 flex-wrap">
                             <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 font-medium"
                                   :class="protocolColors[p.protocol] || 'text-text-secondary'">{{ p.protocol }}</span>
                             <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-text-secondary">{{ p.transport }}</span>
                             <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-text-secondary">{{ p.tls_mode }}</span>
                             <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-text-muted font-mono">:{{ p.defaults?.port || 443 }}</span>
-                        </div>
-                        <div class="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button @click="openEdit(p)" class="text-[10px] px-2.5 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20 transition">✏️ 编辑</button>
-                            <button @click="viewDetail(p)" class="text-[10px] px-2.5 py-1 rounded bg-white/5 text-text-secondary hover:text-text-primary transition">🔍 详情</button>
-                            <button @click="deleteProfile(p.id)" class="text-[10px] px-2.5 py-1 rounded bg-danger/10 text-danger hover:bg-danger/20 transition">🗑️ 删除</button>
                         </div>
                     </div>
                 </div>
