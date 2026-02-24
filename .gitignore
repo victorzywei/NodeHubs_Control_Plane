@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+am-cf-tunnel-sub-main
 dist
 dist-ssr
 *.local
