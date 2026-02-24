@@ -6,6 +6,7 @@ export const KEY = {
     deploy: (did) => `deploy:${did}`,
     plan: (nid, ver) => `plan:${nid}:${ver}`,
     sub: (token) => `sub:${token}`,
+    profileOverride: (pid) => `profile_override:${pid}`,
     idxNodes: () => 'idx:nodes',
     idxProfiles: () => 'idx:profiles',
     idxDeploys: () => 'idx:deploys',

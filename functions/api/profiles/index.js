@@ -10,6 +10,20 @@ import {
 } from '../../_lib/constants.js';
 
 /**
+ * Merge built-in profile with stored overrides
+ */
+function mergeBuiltinOverride(builtin, override) {
+    if (!override) return { ...builtin, is_builtin: true, _has_override: false };
+    return {
+        ...builtin,
+        is_builtin: true,
+        _has_override: true,
+        defaults: { ...(builtin.defaults || {}), ...(override.defaults || {}) },
+        description: override.description || builtin.description,
+    };
+}
+
+/**
  * GET /api/profiles — returns all profiles + protocol registry metadata
  */
 export async function onRequestGet(context) {
@@ -18,11 +32,17 @@ export async function onRequestGet(context) {
     if (!auth.ok) return err('UNAUTHORIZED', auth.error, 401);
 
     const KV = env.NODEHUB_KV;
-    const builtins = BUILTIN_PROFILES.map(p => ({
-        ...p, is_builtin: true,
-        schema: getProfileSchema(p),
-    }));
 
+    // Load built-in profiles with any user overrides merged
+    const builtins = [];
+    for (const bp of BUILTIN_PROFILES) {
+        const override = await kvGet(KV, KEY.profileOverride(bp.id));
+        const merged = mergeBuiltinOverride(bp, override);
+        merged.schema = getProfileSchema(merged);
+        builtins.push(merged);
+    }
+
+    // Load custom profiles
     const idx = await idxList(KV, KEY.idxProfiles());
     const customs = [];
     for (const entry of idx) {
@@ -77,7 +97,6 @@ export async function onRequestPost(context) {
     // Determine compatible node types
     let nodeTypes = body.node_types || [];
     if (nodeTypes.length === 0) {
-        // Auto-detect based on adapter support
         for (const [type, adapter] of Object.entries(NODE_ADAPTERS)) {
             if (adapter.supported_protocols.includes(body.protocol) &&
                 adapter.supported_transports.includes(body.transport) &&

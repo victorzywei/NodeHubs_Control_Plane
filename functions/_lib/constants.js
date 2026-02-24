@@ -390,10 +390,14 @@ export function isProfileCompatibleWithNode(profile, nodeType) {
 }
 
 /**
- * 构建完整配置 Schema — 合并 protocol + transport + tls 的字段
+ * 构建完整配置 Schema — 合并 通用 + protocol + transport + tls 的字段
  */
 export function buildFullSchema(protocolId, transportId, tlsMode) {
     const schema = {};
+
+    // 通用字段：端口（所有协议都有）
+    schema.port = { type: 'number', default: 443, label: '端口', hint: '监听/连接端口', group: 'common' };
+
     const pReg = PROTOCOL_REGISTRY[protocolId];
     const tReg = TRANSPORT_REGISTRY[transportId];
     const sReg = TLS_REGISTRY[tlsMode];
