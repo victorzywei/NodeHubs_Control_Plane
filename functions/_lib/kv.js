@@ -13,17 +13,26 @@ export const KEY = {
     versionCounter: () => 'sys:version_counter',
 };
 
+function checkKV(kv) {
+    if (!kv) {
+        throw new Error('KV binding "NODEHUB_KV" is not configured. Please add a KV namespace binding named NODEHUB_KV in Cloudflare Pages Settings → Bindings, then redeploy.');
+    }
+}
+
 export async function kvGet(kv, key) {
+    checkKV(kv);
     const raw = await kv.get(key, 'text');
     if (!raw) return null;
     try { return JSON.parse(raw); } catch { return raw; }
 }
 
 export async function kvPut(kv, key, value) {
+    checkKV(kv);
     await kv.put(key, JSON.stringify(value));
 }
 
 export async function kvDelete(kv, key) {
+    checkKV(kv);
     await kv.delete(key);
 }
 
