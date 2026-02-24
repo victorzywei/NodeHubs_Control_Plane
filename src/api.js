@@ -29,6 +29,11 @@ export const api = {
 
     // Profiles
     getProfiles: () => request('GET', '/api/profiles'),
+    getProfile: (pid) => request('GET', `/api/profiles/${pid}`),
+    createProfile: (data) => request('POST', '/api/profiles', data),
+    updateProfile: (pid, data) => request('PATCH', `/api/profiles/${pid}`, data),
+    deleteProfile: (pid) => request('DELETE', `/api/profiles/${pid}`),
+    getRegistry: () => request('GET', '/api/profiles/registry'),
 
     // Deploy
     deploy: (data) => request('POST', '/api/deploy', data),

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, inject, onMounted } from 'vue'
+import { ref, computed, inject, onMounted } from 'vue'
 import { api } from '../api.js'
 
 const toast = inject('toast')
@@ -24,6 +24,41 @@ onMounted(async () => {
         deploys.value = d
     } catch { }
     loading.value = false
+})
+
+// Compute selected node types for profile filtering
+const selectedNodeTypes = computed(() => {
+    const types = new Set()
+    for (const nid of selectedNodes.value) {
+        const node = nodes.value.find(n => n.id === nid)
+        if (node) types.add(node.node_type)
+    }
+    return types
+})
+
+// Filter profiles: show compatibility with selected nodes
+const profilesWithCompat = computed(() => {
+    return profiles.value.map(p => {
+        const nodeTypes = p.node_types || []
+        let compatible = true
+        let warning = ''
+
+        if (selectedNodeTypes.value.size > 0) {
+            const hasMatch = [...selectedNodeTypes.value].some(nt => nodeTypes.includes(nt))
+            if (!hasMatch) {
+                compatible = false
+                warning = '不兼容已选节点类型'
+            } else if (selectedNodeTypes.value.size > 1) {
+                // Mixed types — check partial compatibility
+                const missingTypes = [...selectedNodeTypes.value].filter(nt => !nodeTypes.includes(nt))
+                if (missingTypes.length > 0) {
+                    warning = `不适用: ${missingTypes.map(t => t === 'vps' ? 'VPS' : 'Worker').join(', ')}`
+                }
+            }
+        }
+
+        return { ...p, _compatible: compatible, _warning: warning }
+    })
 })
 
 function toggleNode(id) {
@@ -80,6 +115,11 @@ async function rollback(version, nodeIds) {
         toast(`回滚失败: ${e.message}`, 'error')
     }
 }
+
+const protocolColors = {
+    vless: 'text-accent', trojan: 'text-orange-400', vmess: 'text-blue-400',
+    shadowsocks: 'text-violet-400', hysteria2: 'text-purple-400',
+}
 </script>
 
 <template>
@@ -119,21 +159,35 @@ async function rollback(version, nodeIds) {
                 </div>
             </div>
 
-            <!-- Profile Selection -->
+            <!-- Profile Selection (with compatibility) -->
             <div class="mb-5">
                 <label class="block text-xs font-medium text-text-secondary mb-2">选择协议配置</label>
                 <div class="flex flex-wrap gap-2">
                     <button
-                        v-for="p in profiles" :key="p.id"
-                        @click="toggleProfile(p.id)"
-                        class="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border transition-all cursor-pointer"
-                        :class="selectedProfiles.has(p.id)
-                            ? 'border-accent/40 bg-accent/10 text-accent'
-                            : 'border-border bg-white/[0.02] text-text-secondary hover:border-white/10'"
+                        v-for="p in profilesWithCompat" :key="p.id"
+                        @click="p._compatible ? toggleProfile(p.id) : null"
+                        class="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border transition-all"
+                        :class="[
+                            !p._compatible
+                                ? 'border-border/50 bg-white/[0.01] text-text-muted/50 cursor-not-allowed opacity-50'
+                                : selectedProfiles.has(p.id)
+                                    ? 'border-accent/40 bg-accent/10 text-accent cursor-pointer'
+                                    : 'border-border bg-white/[0.02] text-text-secondary hover:border-white/10 cursor-pointer'
+                        ]"
+                        :title="p._warning || p.description || ''"
                     >
                         <span v-if="selectedProfiles.has(p.id)" class="text-xs">✓</span>
                         <span>{{ p.name }}</span>
+                        <span v-if="p._warning" class="text-[9px] text-orange-400">⚠</span>
+                        <span class="text-[9px] px-1 py-px rounded font-medium"
+                              :class="protocolColors[p.protocol] || 'text-text-muted'"
+                              style="background: rgba(255,255,255,0.05);">
+                            {{ p.protocol }}
+                        </span>
                     </button>
+                </div>
+                <div v-if="selectedNodeTypes.size > 0" class="text-[10px] text-text-muted mt-1.5">
+                    💡 已按所选节点类型过滤兼容性，灰色配置表示不兼容
                 </div>
             </div>
 
@@ -144,9 +198,9 @@ async function rollback(version, nodeIds) {
                     v-model="deployParams"
                     class="form-input font-mono text-xs resize-y"
                     rows="3"
-                    placeholder='{"listen_port": 443, "uuid": "..."}'
+                    placeholder='{"listen_port": 443, "uuid": "...", "cf_port": 443, "proxyip": "..."}'
                 />
-                <div class="text-[10px] text-text-muted mt-1">可指定共享 UUID、密码、端口等参数，留空使用默认值</div>
+                <div class="text-[10px] text-text-muted mt-1">可指定共享 UUID、密码、端口、ProxyIP 等参数，留空使用默认值</div>
             </div>
 
             <button @click="doDeploy" class="btn-primary flex items-center gap-2">

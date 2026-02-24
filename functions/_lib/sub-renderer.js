@@ -1,7 +1,8 @@
-// Subscription renderer — generates v2rayN, Clash, sing-box configs
+// Subscription renderer — generates v2ray, Clash, sing-box configs
+// 全协议支持的订阅渲染器
 
 import { kvGet, KEY } from './kv.js';
-import { BUILTIN_PROFILES } from './constants.js';
+import { BUILTIN_PROFILES, CF_PORTS_HTTP } from './constants.js';
 
 /**
  * Render subscription for a given token
@@ -25,23 +26,31 @@ export async function renderSubscription(kv, sub, format = 'v2ray') {
         }
     }
 
-    // Get plans for each node
+    // Get plans for each node → extract outbound configs
     const outbounds = [];
     for (const node of nodes) {
         if (!node.target_version) continue;
         const plan = await kvGet(kv, KEY.plan(node.id, node.target_version));
         if (!plan) continue;
 
-        const inbounds = plan.inbounds || (plan.runtime_config?.configs || []);
-        for (const ib of inbounds) {
-            const settings = ib.settings || {};
+        // Unified extraction: supports both VPS inbounds and CF Worker configs
+        const entries = plan.inbounds || (plan.runtime_config?.configs || []);
+        for (const entry of entries) {
+            const settings = entry.settings || {};
+            const addr = node.entry_domain || node.entry_ip || '127.0.0.1';
+            const port = settings.port || plan.cf_config?.port || plan.routing?.listen_port || 443;
+            const isHttpPort = CF_PORTS_HTTP.includes(parseInt(port));
+
             outbounds.push({
-                name: `${node.name}-${ib.protocol || ib.tag || 'proxy'}`,
+                name: `${node.name}-${entry.protocol || entry.tag || 'proxy'}`,
                 node,
-                protocol: ib.protocol,
-                transport: ib.transport,
-                tls_mode: ib.tls_mode,
+                protocol: entry.protocol,
+                transport: entry.transport,
+                tls_mode: isHttpPort ? 'none' : (entry.tls_mode || 'tls'),
+                port,
+                address: addr,
                 settings,
+                is_cf: plan.node_type === 'cf_worker',
             });
         }
     }
@@ -54,76 +63,170 @@ export async function renderSubscription(kv, sub, format = 'v2ray') {
     }
 }
 
+// ─── V2Ray / V2RayN 格式 ───
 function renderV2ray(outbounds) {
     const links = outbounds.map(ob => {
         const s = ob.settings;
+        const addr = ob.address;
+        const port = ob.port;
+        const hasTls = ob.tls_mode !== 'none';
+
         if (ob.protocol === 'vless') {
             const params = new URLSearchParams({
                 type: ob.transport || 'tcp',
-                security: ob.tls_mode || 'tls',
-                sni: s.sni || s.host || '',
-                host: s.host || '',
-                path: s.path || '',
-                fp: s.fingerprint || 'chrome',
+                security: ob.tls_mode || 'none',
                 encryption: 'none',
             });
-            if (ob.transport === 'grpc') params.set('serviceName', s.service_name || 'grpc');
+            // Transport fields
+            if (ob.transport === 'ws') {
+                params.set('host', s.host || '');
+                params.set('path', s.path || '/');
+            } else if (ob.transport === 'grpc') {
+                params.set('serviceName', s.service_name || 'grpc');
+                params.set('mode', s.multi_mode ? 'multi' : 'gun');
+            } else if (ob.transport === 'h2') {
+                params.set('host', s.host || '');
+                params.set('path', s.path || '/');
+            } else if (ob.transport === 'httpupgrade') {
+                params.set('host', s.host || '');
+                params.set('path', s.path || '/');
+            }
+            // TLS fields
+            if (hasTls) {
+                params.set('sni', s.sni || s.host || '');
+                params.set('fp', s.fingerprint || 'chrome');
+            }
             if (ob.tls_mode === 'reality') {
                 params.set('pbk', s.public_key || '');
                 params.set('sid', s.short_id || '');
+                if (s.spider_x) params.set('spx', s.spider_x);
+                if (s.flow) params.set('flow', s.flow);
             }
-            const addr = ob.node.entry_domain || ob.node.entry_ip || '127.0.0.1';
-            const port = s.port || 443;
             return `vless://${s.uuid}@${addr}:${port}?${params.toString()}#${encodeURIComponent(ob.name)}`;
         }
+
         if (ob.protocol === 'trojan') {
             const params = new URLSearchParams({
                 type: ob.transport || 'tcp',
-                security: 'tls',
-                sni: s.sni || s.host || '',
-                host: s.host || '',
-                path: s.path || '',
+                security: hasTls ? 'tls' : 'none',
             });
-            const addr = ob.node.entry_domain || ob.node.entry_ip || '127.0.0.1';
-            return `trojan://${s.password}@${addr}:${s.port || 443}?${params.toString()}#${encodeURIComponent(ob.name)}`;
+            if (ob.transport === 'ws') {
+                params.set('host', s.host || '');
+                params.set('path', s.path || '/trojan-ws');
+            } else if (ob.transport === 'grpc') {
+                params.set('serviceName', s.service_name || 'grpc');
+            }
+            if (hasTls) {
+                params.set('sni', s.sni || s.host || '');
+                params.set('fp', s.fingerprint || 'chrome');
+            }
+            return `trojan://${s.password}@${addr}:${port}?${params.toString()}#${encodeURIComponent(ob.name)}`;
         }
+
+        if (ob.protocol === 'vmess') {
+            const vmessConfig = {
+                v: '2', ps: ob.name,
+                add: addr, port: parseInt(port),
+                id: s.uuid, aid: s.alter_id || 0,
+                scy: s.encryption || 'auto',
+                net: ob.transport || 'ws',
+                type: 'none',
+                host: s.host || '', path: s.path || '/',
+                tls: hasTls ? 'tls' : '',
+                sni: s.sni || s.host || '',
+                fp: s.fingerprint || '',
+                alpn: Array.isArray(s.alpn) ? s.alpn.join(',') : '',
+            };
+            if (ob.transport === 'grpc') {
+                vmessConfig.path = s.service_name || 'grpc';
+                vmessConfig.type = 'gun';
+            }
+            return `vmess://${btoa(JSON.stringify(vmessConfig))}`;
+        }
+
+        if (ob.protocol === 'shadowsocks') {
+            const userinfo = btoa(`${s.method}:${s.password}`);
+            return `ss://${userinfo}@${addr}:${port}#${encodeURIComponent(ob.name)}`;
+        }
+
+        if (ob.protocol === 'hysteria2') {
+            const params = new URLSearchParams({ sni: s.sni || '' });
+            if (s.obfs_type) {
+                params.set('obfs', s.obfs_type);
+                params.set('obfs-password', s.obfs_password || '');
+            }
+            return `hysteria2://${s.password}@${addr}:${port}?${params.toString()}#${encodeURIComponent(ob.name)}`;
+        }
+
         return '';
     }).filter(Boolean);
 
     return btoa(links.join('\n'));
 }
 
+// ─── Clash / Clash Meta 格式 ───
 function renderClash(outbounds) {
     const proxies = outbounds.map(ob => {
         const s = ob.settings;
         const base = {
             name: ob.name,
-            server: ob.node.entry_domain || ob.node.entry_ip || '127.0.0.1',
-            port: s.port || 443,
+            server: ob.address,
+            port: parseInt(ob.port),
         };
+        const hasTls = ob.tls_mode !== 'none';
 
         if (ob.protocol === 'vless') {
             return {
-                ...base,
-                type: 'vless',
-                uuid: s.uuid,
-                tls: true,
-                'skip-cert-verify': false,
+                ...base, type: 'vless', uuid: s.uuid,
+                tls: hasTls, 'skip-cert-verify': s.allow_insecure || false,
                 servername: s.sni || s.host || '',
                 network: ob.transport || 'ws',
-                'ws-opts': ob.transport === 'ws' ? { path: s.path || '/ws', headers: { Host: s.host || '' } } : undefined,
+                flow: s.flow || undefined,
+                'client-fingerprint': s.fingerprint || 'chrome',
+                'ws-opts': ob.transport === 'ws' ? { path: s.path || '/', headers: { Host: s.host || '' } } : undefined,
                 'grpc-opts': ob.transport === 'grpc' ? { 'grpc-service-name': s.service_name || 'grpc' } : undefined,
+                'reality-opts': ob.tls_mode === 'reality' ? { 'public-key': s.public_key || '', 'short-id': s.short_id || '' } : undefined,
             };
         }
 
         if (ob.protocol === 'trojan') {
             return {
-                ...base,
-                type: 'trojan',
-                password: s.password,
-                sni: s.sni || '',
-                network: ob.transport || 'ws',
+                ...base, type: 'trojan', password: s.password,
+                sni: s.sni || '', 'skip-cert-verify': s.allow_insecure || false,
+                network: ob.transport || 'tcp',
+                'client-fingerprint': s.fingerprint || 'chrome',
                 'ws-opts': ob.transport === 'ws' ? { path: s.path || '/trojan-ws', headers: { Host: s.host || '' } } : undefined,
+                'grpc-opts': ob.transport === 'grpc' ? { 'grpc-service-name': s.service_name || 'grpc' } : undefined,
+            };
+        }
+
+        if (ob.protocol === 'vmess') {
+            return {
+                ...base, type: 'vmess', uuid: s.uuid,
+                alterId: s.alter_id || 0, cipher: s.encryption || 'auto',
+                tls: hasTls, 'skip-cert-verify': s.allow_insecure || false,
+                servername: s.sni || s.host || '',
+                network: ob.transport || 'ws',
+                'ws-opts': ob.transport === 'ws' ? { path: s.path || '/', headers: { Host: s.host || '' } } : undefined,
+                'grpc-opts': ob.transport === 'grpc' ? { 'grpc-service-name': s.service_name || 'grpc' } : undefined,
+            };
+        }
+
+        if (ob.protocol === 'shadowsocks') {
+            return {
+                ...base, type: 'ss',
+                cipher: s.method, password: s.password,
+            };
+        }
+
+        if (ob.protocol === 'hysteria2') {
+            return {
+                ...base, type: 'hysteria2',
+                password: s.password, sni: s.sni || '',
+                up: `${s.up_mbps || 100} Mbps`,
+                down: `${s.down_mbps || 100} Mbps`,
+                obfs: s.obfs_type || undefined,
+                'obfs-password': s.obfs_password || undefined,
             };
         }
 
@@ -139,50 +242,89 @@ function renderClash(outbounds) {
         }],
     };
 
-    // Simple YAML serialization
     return simpleYaml(config);
 }
 
+// ─── sing-box 格式 ───
 function renderSingbox(outbounds) {
     const obs = outbounds.map(ob => {
         const s = ob.settings;
         const base = {
             tag: ob.name,
-            type: ob.protocol,
-            server: ob.node.entry_domain || ob.node.entry_ip || '127.0.0.1',
-            server_port: s.port || 443,
+            type: ob.protocol === 'shadowsocks' ? 'shadowsocks' : ob.protocol,
+            server: ob.address,
+            server_port: parseInt(ob.port),
         };
+        const hasTls = ob.tls_mode !== 'none';
 
         if (ob.protocol === 'vless') {
             base.uuid = s.uuid;
-            base.tls = {
-                enabled: true,
-                server_name: s.sni || s.host || '',
-                insecure: false,
-            };
-            if (ob.tls_mode === 'reality') {
-                base.tls.reality = {
+            base.flow = s.flow || undefined;
+            if (hasTls) {
+                base.tls = {
                     enabled: true,
-                    public_key: s.public_key || '',
-                    short_id: s.short_id || '',
+                    server_name: s.sni || s.host || '',
+                    insecure: s.allow_insecure || false,
                 };
-                base.tls.utls = { enabled: true, fingerprint: s.fingerprint || 'chrome' };
+                if (ob.tls_mode === 'reality') {
+                    base.tls.reality = {
+                        enabled: true,
+                        public_key: s.public_key || '',
+                        short_id: s.short_id || '',
+                    };
+                    base.tls.utls = { enabled: true, fingerprint: s.fingerprint || 'chrome' };
+                } else {
+                    base.tls.utls = { enabled: true, fingerprint: s.fingerprint || 'chrome' };
+                    if (s.alpn) base.tls.alpn = Array.isArray(s.alpn) ? s.alpn : [s.alpn];
+                }
             }
-            if (ob.transport === 'ws') {
-                base.transport = { type: 'ws', path: s.path || '/ws', headers: { Host: s.host || '' } };
-            } else if (ob.transport === 'grpc') {
-                base.transport = { type: 'grpc', service_name: s.service_name || 'grpc' };
-            }
+            applyTransportSingbox(base, ob, s);
         }
 
         if (ob.protocol === 'trojan') {
             base.password = s.password;
+            if (hasTls) {
+                base.tls = {
+                    enabled: true,
+                    server_name: s.sni || s.host || '',
+                    insecure: s.allow_insecure || false,
+                    utls: { enabled: true, fingerprint: s.fingerprint || 'chrome' },
+                };
+                if (s.alpn) base.tls.alpn = Array.isArray(s.alpn) ? s.alpn : [s.alpn];
+            }
+            applyTransportSingbox(base, ob, s);
+        }
+
+        if (ob.protocol === 'vmess') {
+            base.uuid = s.uuid;
+            base.alter_id = s.alter_id || 0;
+            base.security = s.encryption || 'auto';
+            if (hasTls) {
+                base.tls = {
+                    enabled: true,
+                    server_name: s.sni || s.host || '',
+                    insecure: s.allow_insecure || false,
+                };
+            }
+            applyTransportSingbox(base, ob, s);
+        }
+
+        if (ob.protocol === 'shadowsocks') {
+            base.method = s.method;
+            base.password = s.password;
+        }
+
+        if (ob.protocol === 'hysteria2') {
+            base.password = s.password;
+            base.up_mbps = s.up_mbps || 100;
+            base.down_mbps = s.down_mbps || 100;
             base.tls = {
                 enabled: true,
-                server_name: s.sni || s.host || '',
+                server_name: s.sni || '',
+                insecure: s.allow_insecure || false,
             };
-            if (ob.transport === 'ws') {
-                base.transport = { type: 'ws', path: s.path || '/trojan-ws', headers: { Host: s.host || '' } };
+            if (s.obfs_type) {
+                base.obfs = { type: s.obfs_type, password: s.obfs_password || '' };
             }
         }
 
@@ -198,6 +340,26 @@ function renderSingbox(outbounds) {
     }, null, 2);
 }
 
+// ─── Helper: apply transport config for sing-box ───
+function applyTransportSingbox(base, ob, s) {
+    if (ob.transport === 'ws') {
+        base.transport = {
+            type: 'ws',
+            path: s.path || '/',
+            headers: { Host: s.host || '' },
+            max_early_data: s.max_early_data || 0,
+            early_data_header_name: s.early_data_header || 'Sec-WebSocket-Protocol',
+        };
+    } else if (ob.transport === 'grpc') {
+        base.transport = { type: 'grpc', service_name: s.service_name || 'grpc' };
+    } else if (ob.transport === 'h2') {
+        base.transport = { type: 'http', host: [s.host || ''], path: s.path || '/' };
+    } else if (ob.transport === 'httpupgrade') {
+        base.transport = { type: 'httpupgrade', host: s.host || '', path: s.path || '/' };
+    }
+}
+
+// ─── YAML serializer ───
 function simpleYaml(obj, indent = 0) {
     let result = '';
     const pad = '  '.repeat(indent);

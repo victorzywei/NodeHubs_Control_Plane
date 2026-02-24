@@ -1,29 +1,45 @@
 // GET  /api/profiles → List all profiles (built-in + custom)
-// POST /api/profiles → Create custom profile
+// POST /api/profiles → Create custom profile (3x-ui style)
 
 import { verifyAdmin } from '../../_lib/auth.js';
 import { kvGet, kvPut, idxList, idxAdd, generateId, KEY } from '../../_lib/kv.js';
 import { ok, err } from '../../_lib/response.js';
-import { BUILTIN_PROFILES } from '../../_lib/constants.js';
+import {
+    BUILTIN_PROFILES, PROTOCOL_REGISTRY, TRANSPORT_REGISTRY, TLS_REGISTRY,
+    NODE_ADAPTERS, isValidCombination, getProfileSchema,
+} from '../../_lib/constants.js';
 
+/**
+ * GET /api/profiles — returns all profiles + protocol registry metadata
+ */
 export async function onRequestGet(context) {
     const { request, env } = context;
     const auth = verifyAdmin(request, env);
     if (!auth.ok) return err('UNAUTHORIZED', auth.error, 401);
 
     const KV = env.NODEHUB_KV;
-    const builtins = BUILTIN_PROFILES.map(p => ({ ...p, is_builtin: true }));
+    const builtins = BUILTIN_PROFILES.map(p => ({
+        ...p, is_builtin: true,
+        schema: getProfileSchema(p),
+    }));
 
     const idx = await idxList(KV, KEY.idxProfiles());
     const customs = [];
     for (const entry of idx) {
         const profile = await kvGet(KV, KEY.profile(entry.id));
-        if (profile) customs.push({ ...profile, is_builtin: false });
+        if (profile) customs.push({
+            ...profile, is_builtin: false,
+            schema: getProfileSchema(profile),
+        });
     }
 
     return ok([...builtins, ...customs]);
 }
 
+/**
+ * POST /api/profiles — create a custom profile
+ * Body: { name, protocol, transport, tls_mode, description?, defaults?, node_types?, schema? }
+ */
 export async function onRequestPost(context) {
     const { request, env } = context;
     const auth = verifyAdmin(request, env);
@@ -32,18 +48,55 @@ export async function onRequestPost(context) {
     const KV = env.NODEHUB_KV;
     const body = await request.json();
 
+    // Validation
     if (!body.name) return err('VALIDATION', 'name is required', 400);
     if (!body.protocol) return err('VALIDATION', 'protocol is required', 400);
+    if (!body.transport) return err('VALIDATION', 'transport is required', 400);
+    if (!body.tls_mode) return err('VALIDATION', 'tls_mode is required', 400);
+
+    // Validate protocol exists in registry
+    if (!PROTOCOL_REGISTRY[body.protocol]) {
+        return err('VALIDATION', `Unknown protocol: ${body.protocol}. Supported: ${Object.keys(PROTOCOL_REGISTRY).join(', ')}`, 400);
+    }
+
+    // Validate transport exists
+    if (!TRANSPORT_REGISTRY[body.transport]) {
+        return err('VALIDATION', `Unknown transport: ${body.transport}. Supported: ${Object.keys(TRANSPORT_REGISTRY).join(', ')}`, 400);
+    }
+
+    // Validate TLS mode exists
+    if (!TLS_REGISTRY[body.tls_mode]) {
+        return err('VALIDATION', `Unknown tls_mode: ${body.tls_mode}. Supported: ${Object.keys(TLS_REGISTRY).join(', ')}`, 400);
+    }
+
+    // Validate combination is valid
+    if (!isValidCombination(body.protocol, body.transport, body.tls_mode)) {
+        return err('VALIDATION', `Invalid combination: ${body.protocol}+${body.transport}+${body.tls_mode}`, 400);
+    }
+
+    // Determine compatible node types
+    let nodeTypes = body.node_types || [];
+    if (nodeTypes.length === 0) {
+        // Auto-detect based on adapter support
+        for (const [type, adapter] of Object.entries(NODE_ADAPTERS)) {
+            if (adapter.supported_protocols.includes(body.protocol) &&
+                adapter.supported_transports.includes(body.transport) &&
+                adapter.supported_tls.includes(body.tls_mode)) {
+                nodeTypes.push(type);
+            }
+        }
+    }
 
     const pid = generateId('p');
     const profile = {
         id: pid,
         name: body.name,
         protocol: body.protocol,
-        transport: body.transport || 'tcp',
-        tls_mode: body.tls_mode || 'tls',
+        transport: body.transport,
+        tls_mode: body.tls_mode,
         description: body.description || '',
-        requirements: body.requirements || {},
+        node_types: nodeTypes,
+        defaults: body.defaults || {},
         schema: body.schema || {},
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -52,5 +105,9 @@ export async function onRequestPost(context) {
     await kvPut(KV, KEY.profile(pid), profile);
     await idxAdd(KV, KEY.idxProfiles(), { id: pid, name: profile.name });
 
-    return ok(profile, 201);
+    return ok({
+        ...profile,
+        is_builtin: false,
+        schema: getProfileSchema(profile),
+    }, 201);
 }
