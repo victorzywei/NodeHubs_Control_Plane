@@ -103,14 +103,8 @@ function generateWorkerPlan(node, profiles, params, version) {
         const templateProfile = resolveProfile(profile);
         const settings = resolveProfileParams(templateProfile, params, node, 'cf_worker');
 
-        // Inject CF-specific path parameters
-        let path = settings.path || '/?ed=2560';
-        const pathParams = new URLSearchParams();
-        pathParams.set('ed', '2560');
-        if (profile.protocol) pathParams.set('PROT_TYPE', profile.protocol);
-        if (params.proxyip) pathParams.set('PADDR', params.proxyip);
-        if (params.nat64) pathParams.set('P64', 'true');
-        settings.path = `/?${pathParams.toString()}`;
+        // 使用标准路径（Worker 自动识别协议）
+        settings.path = settings.path || '/';
 
         return {
             profile_id: profile.id,
