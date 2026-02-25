@@ -7,7 +7,7 @@
 export const NODE_TYPES = ['vps', 'cf_worker'];
 
 // ─── 系统常量 ───
-export const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
+export const ONLINE_THRESHOLD_MS = 15 * 60 * 1000;
 export const PLAN_RETENTION_COUNT = 10;
 
 // ─── CF 标准端口集合 ───

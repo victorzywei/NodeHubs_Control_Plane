@@ -10,6 +10,7 @@ export async function onRequestGet(context) {
     const url = new URL(request.url);
     const nodeId = url.searchParams.get('node_id');
     const currentVersion = parseInt(url.searchParams.get('current_version') || '0', 10);
+    const sync = url.searchParams.get('sync') === 'true';
     const nodeToken = request.headers.get('X-Node-Token') || '';
 
     if (!nodeId) return err('MISSING_PARAM', 'node_id is required', 400);
@@ -21,10 +22,12 @@ export async function onRequestGet(context) {
     if (!node) return err('NODE_NOT_FOUND', 'Node not found', 404);
     if (node.node_token !== nodeToken) return err('INVALID_TOKEN', 'Invalid node token', 401);
 
-    // Update heartbeat
-    node.last_seen = new Date().toISOString();
-    node.applied_version = currentVersion;
-    await kvPut(KV, KEY.node(nodeId), node);
+    // Update heartbeat only if requested via sync=true
+    if (sync) {
+        node.last_seen = new Date().toISOString();
+        node.applied_version = currentVersion;
+        await kvPut(KV, KEY.node(nodeId), node);
+    }
 
     const needsUpdate = node.target_version && node.target_version > currentVersion;
 

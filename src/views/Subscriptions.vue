@@ -7,6 +7,7 @@ const subs = ref([])
 const nodes = ref([])
 const loading = ref(true)
 const showModal = ref(false)
+const editingToken = ref(null) // null=创建, 有值=编辑
 
 const form = ref({ name: '', remark: '', selectedNodes: new Set() })
 
@@ -24,6 +25,10 @@ async function loadData() {
 
 const baseUrl = computed(() => window.location.origin)
 
+const isEditing = computed(() => editingToken.value !== null)
+
+const modalTitle = computed(() => isEditing.value ? '编辑订阅' : '创建订阅')
+
 function subUrl(token, format) {
     return `${baseUrl.value}/sub/${token}?format=${format}`
 }
@@ -34,7 +39,18 @@ function copy(text, label) {
 }
 
 function openCreate() {
+    editingToken.value = null
     form.value = { name: '', remark: '', selectedNodes: new Set() }
+    showModal.value = true
+}
+
+function openEdit(sub) {
+    editingToken.value = sub.token
+    form.value = {
+        name: sub.name || '',
+        remark: sub.remark || '',
+        selectedNodes: new Set(sub.visible_node_ids || []),
+    }
     showModal.value = true
 }
 
@@ -43,18 +59,34 @@ function toggleFormNode(id) {
     form.value.selectedNodes = new Set(form.value.selectedNodes)
 }
 
-async function createSub() {
+function selectAllNodes() {
+    if (form.value.selectedNodes.size === nodes.value.length) {
+        form.value.selectedNodes = new Set()
+    } else {
+        form.value.selectedNodes = new Set(nodes.value.map(n => n.id))
+    }
+}
+
+async function submitForm() {
     try {
-        await api.createSubscription({
+        const payload = {
             name: form.value.name.trim() || undefined,
             visible_node_ids: [...form.value.selectedNodes],
             remark: form.value.remark.trim(),
-        })
-        toast('订阅已创建', 'success')
+        }
+
+        if (isEditing.value) {
+            await api.updateSubscription(editingToken.value, payload)
+            toast('订阅已更新', 'success')
+        } else {
+            await api.createSubscription(payload)
+            toast('订阅已创建', 'success')
+        }
+
         showModal.value = false
         await loadData()
     } catch (e) {
-        toast(`创建失败: ${e.message}`, 'error')
+        toast(`操作失败: ${e.message}`, 'error')
     }
 }
 
@@ -77,6 +109,13 @@ async function deleteSub(token, name) {
     } catch (e) {
         toast(`删除失败: ${e.message}`, 'error')
     }
+}
+
+function getNodeNames(nodeIds) {
+    if (!nodeIds || nodeIds.length === 0) return '全部节点'
+    return nodeIds
+        .map(id => nodes.value.find(n => n.id === id)?.name || id)
+        .join(', ')
 }
 </script>
 
@@ -108,6 +147,10 @@ async function deleteSub(token, name) {
                         </div>
                     </div>
                     <div class="flex gap-2">
+                        <button @click="openEdit(sub)"
+                                class="text-xs px-3 py-1.5 rounded-lg border border-accent/20 text-accent hover:bg-accent/10 transition">
+                            编辑
+                        </button>
                         <button @click="toggleSub(sub.token, sub.enabled)"
                                 class="text-xs px-3 py-1.5 rounded-lg border border-border text-text-secondary hover:bg-white/5 transition">
                             {{ sub.enabled ? '禁用' : '启用' }}
@@ -120,9 +163,12 @@ async function deleteSub(token, name) {
                 </div>
 
                 <div class="text-xs text-text-muted mb-3">
-                    可见节点: {{ sub.visible_node_ids?.length || nodes.length }} ·
+                    可见节点: {{ getNodeNames(sub.visible_node_ids) }} ·
                     {{ sub.remark ? `备注: ${sub.remark} · ` : '' }}
                     创建: {{ new Date(sub.created_at).toLocaleString('zh-CN') }}
+                    <template v-if="sub.updated_at && sub.updated_at !== sub.created_at">
+                        · 更新: {{ new Date(sub.updated_at).toLocaleString('zh-CN') }}
+                    </template>
                 </div>
 
                 <!-- URLs -->
@@ -140,23 +186,32 @@ async function deleteSub(token, name) {
             </div>
         </div>
 
-        <!-- Create Modal -->
+        <!-- Create/Edit Modal -->
         <Teleport to="body">
             <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
                 <div class="modal-panel">
                     <div class="flex items-center justify-between mb-6">
-                        <h3 class="font-semibold text-lg">创建订阅</h3>
+                        <h3 class="font-semibold text-lg">{{ modalTitle }}</h3>
                         <button @click="showModal = false" class="text-text-muted hover:text-text-primary text-xl leading-none">✕</button>
                     </div>
 
-                    <form @submit.prevent="createSub" class="space-y-4">
+                    <form @submit.prevent="submitForm" class="space-y-4">
                         <div>
                             <label class="block text-xs font-medium text-text-secondary mb-1.5">订阅名称</label>
                             <input v-model="form.name" class="form-input" placeholder="例如: 我的订阅, 家庭组" />
                         </div>
 
                         <div>
-                            <label class="block text-xs font-medium text-text-secondary mb-1.5">可见节点 (不选=全部可见)</label>
+                            <label class="block text-xs font-medium text-text-secondary mb-1.5">
+                                可见节点
+                                <span class="ml-1 text-text-muted">(不选=全部可见)</span>
+                            </label>
+                            <div class="mb-2">
+                                <button type="button" @click="selectAllNodes"
+                                    class="text-[10px] px-2.5 py-1 rounded border border-border text-text-secondary hover:bg-white/5 transition">
+                                    {{ form.selectedNodes.size === nodes.length ? '取消全选' : '全选' }}
+                                </button>
+                            </div>
                             <div class="flex flex-wrap gap-2">
                                 <button
                                     v-for="n in nodes" :key="n.id"
@@ -167,8 +222,13 @@ async function deleteSub(token, name) {
                                         ? 'border-accent/40 bg-accent/10 text-accent'
                                         : 'border-border text-text-secondary hover:border-white/10'"
                                 >
+                                    <span class="mr-1">{{ form.selectedNodes.has(n.id) ? '✓' : '' }}</span>
                                     {{ n.name }}
+                                    <span class="ml-1 opacity-50">{{ n.node_type === 'cf_worker' ? '⚡' : '🖥️' }}</span>
                                 </button>
+                            </div>
+                            <div v-if="form.selectedNodes.size > 0" class="mt-2 text-[10px] text-text-muted">
+                                已选 {{ form.selectedNodes.size }} 个节点
                             </div>
                         </div>
 
@@ -179,7 +239,7 @@ async function deleteSub(token, name) {
 
                         <div class="flex justify-end gap-3 pt-4 border-t border-border">
                             <button type="button" @click="showModal = false" class="px-4 py-2 rounded-lg text-sm text-text-secondary hover:bg-white/5 transition">取消</button>
-                            <button type="submit" class="btn-primary">创建</button>
+                            <button type="submit" class="btn-primary">{{ isEditing ? '保存' : '创建' }}</button>
                         </div>
                     </form>
                 </div>
