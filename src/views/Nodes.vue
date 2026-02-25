@@ -190,7 +190,7 @@ function timeAgo(dateStr) {
 
         <!-- Create/Edit Modal -->
         <Teleport to="body">
-            <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
+            <div v-if="showModal" class="modal-overlay" @mousedown.self="showModal = false">
                 <div class="modal-panel">
                     <div class="flex items-center justify-between mb-6">
                         <h3 class="font-semibold text-lg">{{ editId ? '编辑节点' : '添加节点' }}</h3>
@@ -249,7 +249,7 @@ function timeAgo(dateStr) {
 
         <!-- Detail Modal -->
         <Teleport to="body">
-            <div v-if="showDetail && detailNode" class="modal-overlay" @click.self="showDetail = false">
+            <div v-if="showDetail && detailNode" class="modal-overlay" @mousedown.self="showDetail = false">
                 <div class="modal-panel max-w-xl">
                     <div class="flex items-center justify-between mb-6">
                         <h3 class="font-semibold text-lg">节点详情 · {{ detailNode.name }}</h3>

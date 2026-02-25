@@ -1,6 +1,0 @@
-name = "solitary-math-ba27"
-main = "_worker.js"
-
-# 每 5 分钟触发一次心跳，保持节点在线
-[triggers]
-crons = ["*/5 * * * *"]

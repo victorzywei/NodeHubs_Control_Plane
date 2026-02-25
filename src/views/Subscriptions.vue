@@ -188,7 +188,7 @@ function getNodeNames(nodeIds) {
 
         <!-- Create/Edit Modal -->
         <Teleport to="body">
-            <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
+            <div v-if="showModal" class="modal-overlay" @mousedown.self="showModal = false">
                 <div class="modal-panel">
                     <div class="flex items-center justify-between mb-6">
                         <h3 class="font-semibold text-lg">{{ modalTitle }}</h3>

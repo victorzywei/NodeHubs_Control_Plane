@@ -326,7 +326,7 @@ const protocolBg = {
 
         <!-- ━━━━━━━━ Create Modal (3x-ui style) ━━━━━━━━ -->
         <Teleport to="body">
-            <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
+            <div v-if="showCreateModal" class="modal-overlay" @mousedown.self="showCreateModal = false">
                 <div class="modal-panel max-w-2xl max-h-[90vh] overflow-y-auto">
                     <div class="flex items-center justify-between mb-6">
                         <h3 class="font-semibold text-lg">添加自定义协议</h3>
@@ -472,7 +472,7 @@ const protocolBg = {
 
         <!-- ━━━━━━━━ Edit Modal ━━━━━━━━ -->
         <Teleport to="body">
-            <div v-if="showEditModal && editingProfile" class="modal-overlay" @click.self="showEditModal = false">
+            <div v-if="showEditModal && editingProfile" class="modal-overlay" @mousedown.self="showEditModal = false">
                 <div class="modal-panel max-w-2xl max-h-[90vh] overflow-y-auto">
                     <div class="flex items-center justify-between mb-6">
                         <div>
@@ -556,7 +556,7 @@ const protocolBg = {
 
         <!-- ━━━━━━━━ Detail Modal ━━━━━━━━ -->
         <Teleport to="body">
-            <div v-if="showDetailModal && detailProfile" class="modal-overlay" @click.self="showDetailModal = false">
+            <div v-if="showDetailModal && detailProfile" class="modal-overlay" @mousedown.self="showDetailModal = false">
                 <div class="modal-panel max-w-lg">
                     <div class="flex items-center justify-between mb-6">
                         <h3 class="font-semibold text-lg">{{ detailProfile.name }}</h3>
