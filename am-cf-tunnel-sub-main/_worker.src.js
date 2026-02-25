@@ -201,17 +201,17 @@ async function mainHandler({ req, url, headers, res, env }) {
     }
     if (url.pathname === `/${id}`) {
         let paddr;
-		if (proxyIPsAll.length > 0) {
-			paddr = proxyIPsAll[Math.floor(Math.random() * proxyIPsAll.length)];
-		}
+        if (proxyIPsAll.length > 0) {
+            paddr = proxyIPsAll[Math.floor(Math.random() * proxyIPsAll.length)];
+        }
         const html = await getConfig(rawHost, uuid, host, paddr, parsedSocks5, userAgent, url, protType, nat64, hostRemark);
         return sendResponse(html, userAgent, res);
     }
     if (url.pathname === `/${fakeUserId}`) {
         let paddr;
-		if (proxyIPsAll.length > 0) {
-			paddr = proxyIPsAll[Math.floor(Math.random() * proxyIPsAll.length)];
-		}
+        if (proxyIPsAll.length > 0) {
+            paddr = proxyIPsAll[Math.floor(Math.random() * proxyIPsAll.length)];
+        }
         const html = await getConfig(rawHost, uuid, host, paddr, parsedSocks5, 'CF-FAKE-UA', url, protType, nat64, hostRemark);
         return sendResponse(html, 'CF-FAKE-UA', res);
     }
@@ -225,6 +225,7 @@ async function mainHandler({ req, url, headers, res, env }) {
         const port = url.searchParams.get('port') || '443';
         nipHost = getNipHost(nipHost);
         log(`[handler]-->nipHost: ${nipHost}`);
+        /** @type {any} */
         let ipData = await loadIpSource(ipSource, port);
         log('ipData type:', typeof ipData, ipData);
         if (ipData instanceof Response) {
@@ -288,7 +289,9 @@ function getEnvVar(key, env) {
     if (env && typeof env[key] !== 'undefined') {
         return env[key];
     }
+    // @ts-ignore
     if (typeof process !== 'undefined' && process.env && typeof process.env[key] !== 'undefined') {
+        // @ts-ignore
         return process.env[key];
     }
     return undefined;
@@ -297,6 +300,7 @@ function getEnvVar(key, env) {
 function isCloudflareRuntime(env) {
     const isCFCache = typeof caches !== "undefined" && caches.default;
     const isCFEnv = env && Object.prototype.toString.call(env) === "[object Object]";
+    // @ts-ignore
     const isNotNode = typeof process === "undefined" || !process.release || process.release.name !== "node";
     if (isCFCache && isCFEnv && isNotNode) {
         log("[isCloudflareRuntime]--> ✅ Cloudflare Runtime");
@@ -350,6 +354,7 @@ function log(...args) {
             prefix = '[CF]';
         }
         // ✅ 判断 Vercel / Node 环境
+        // @ts-ignore
         else if (typeof process !== 'undefined' && process.release?.name === 'node') {
             prefix = '[VC]';
         }
@@ -372,6 +377,7 @@ function errorLogs(err, extra = {}) {
             prefix = '[CF-ERR]';
         }
         // 判断 Vercel / Node.js 环境
+        // @ts-ignore
         else if (typeof process !== 'undefined' && process.release?.name === 'node') {
             prefix = '[VC-ERR]';
         }
@@ -443,6 +449,7 @@ function sendResponse(content, userAgent = '', res = null, status = 200) {
 
 function base64Encode(input) {
     try {
+        // @ts-ignore
         return Buffer.from(input, 'utf-8').toString('base64');
     } catch (e) {
         if (typeof btoa === 'function') {
@@ -460,8 +467,10 @@ function base64Decode(input) {
     if (typeof atob === 'function') {
         // Edge Runtime 
         return atob(input);
+        // @ts-ignore
     } else if (typeof Buffer === 'function') {
         // Node.js
+        // @ts-ignore
         return Buffer.from(input, 'base64').toString('utf-8');
     } else {
         throw new Error('Base64 decode not supported in this environment');
@@ -1020,7 +1029,7 @@ async function getIpUrlCsv(urlCsvs, tls) {
         try {
             const response = await fetch(url);
             if (!response.ok) {
-                errorLogs('Error fetching CSV:', response.status, response.statusText);
+                errorLogs('Error fetching CSV:', { status: response.status, statusText: response.statusText });
                 return;
             }
             const text = await response.text();
@@ -1055,7 +1064,7 @@ async function getIpUrlCsv(urlCsvs, tls) {
                 }
             }
         } catch (error) {
-            errorLogs('Error processing CSV URL:', csvUrl, error);
+            errorLogs('Error processing CSV URL:', { csvUrl, error });
         }
     });
 
@@ -1666,6 +1675,7 @@ async function login(req, env, res = null) {
 async function redirectToId(id, req, res = null) {
     if (!id) id = 'default';
 
+    // @ts-ignore
     const envType = (typeof process !== 'undefined' && process.release?.name === 'node') ? 'Node/Vercel' :
         (typeof WebSocketPair !== 'undefined' && typeof addEventListener === 'function') ? 'Cloudflare Worker' :
             'Unknown';

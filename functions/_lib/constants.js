@@ -210,7 +210,7 @@ export const BUILTIN_PROFILES = [
         description: 'VLESS over WebSocket+TLS，兼容 CDN，最通用的方案',
         node_types: ['vps', 'cf_worker'],
         defaults: {
-            path: '/', fingerprint: 'randomized', alpn: ['h2', 'http/1.1'],
+            path: '/?ed=2560', fingerprint: 'randomized', alpn: ['h2', 'http/1.1'],
         },
     },
     {
@@ -223,7 +223,7 @@ export const BUILTIN_PROFILES = [
         description: 'VLESS over WebSocket 无 TLS，适用 CF 80 系端口',
         node_types: ['cf_worker'],
         defaults: {
-            path: '/',
+            path: '/?ed=2560',
         },
     },
     {

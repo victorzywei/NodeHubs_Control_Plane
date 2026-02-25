@@ -103,8 +103,8 @@ function generateWorkerPlan(node, profiles, params, version) {
         const templateProfile = resolveProfile(profile);
         const settings = resolveProfileParams(templateProfile, params, node, 'cf_worker');
 
-        // 使用标准路径（Worker 自动识别协议）
-        settings.path = settings.path || '/';
+        // 标准路径 + Early Data 优化（Worker 自动识别协议）
+        settings.path = settings.path || '/?ed=2560';
 
         return {
             profile_id: profile.id,
