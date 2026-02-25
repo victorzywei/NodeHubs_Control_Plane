@@ -6,6 +6,12 @@ import {
     NODE_ADAPTERS, CF_PORTS_HTTP, isProfileCompatibleWithNode, getProfileSchema,
 } from './constants.js';
 
+/** Strip protocol prefix and trailing slashes from domain strings */
+function cleanDomain(domain) {
+    if (!domain) return '';
+    return domain.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+}
+
 /**
  * Generate a plan for a specific node
  */
@@ -104,7 +110,7 @@ function generateWorkerPlan(node, profiles, params, version) {
         if (profile.protocol) pathParams.set('PROT_TYPE', profile.protocol);
         if (params.proxyip) pathParams.set('PADDR', params.proxyip);
         if (params.nat64) pathParams.set('P64', 'true');
-        settings.path = `/?\${pathParams.toString()}`;
+        settings.path = `/?${pathParams.toString()}`;
 
         return {
             profile_id: profile.id,
@@ -161,9 +167,9 @@ function resolveProfileParams(profile, params, node, nodeType) {
         if (params[field] !== undefined) {
             resolved[field] = params[field];
         } else if (field === 'host' && node.entry_domain) {
-            resolved[field] = node.entry_domain;
+            resolved[field] = cleanDomain(node.entry_domain);
         } else if (field === 'sni' && node.entry_domain) {
-            resolved[field] = node.entry_domain;
+            resolved[field] = cleanDomain(node.entry_domain);
         } else if (def.auto === 'uuid') {
             resolved[field] = params.uuid || generateUUID();
         } else if (def.auto === 'password') {

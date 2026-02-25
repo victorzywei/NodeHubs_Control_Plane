@@ -4,6 +4,12 @@
 import { kvGet, KEY } from './kv.js';
 import { BUILTIN_PROFILES, CF_PORTS_HTTP } from './constants.js';
 
+/** Strip protocol prefix and trailing slashes from domain strings */
+function cleanDomain(domain) {
+    if (!domain) return '';
+    return domain.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+}
+
 /**
  * Render subscription for a given token
  */
@@ -37,7 +43,7 @@ export async function renderSubscription(kv, sub, format = 'v2ray') {
         const entries = plan.inbounds || (plan.runtime_config?.configs || []);
         for (const entry of entries) {
             const settings = entry.settings || {};
-            const addr = node.entry_domain || node.entry_ip || '127.0.0.1';
+            const addr = cleanDomain(node.entry_domain) || node.entry_ip || '127.0.0.1';
             const port = settings.port || plan.cf_config?.port || plan.routing?.listen_port || 443;
             const isHttpPort = CF_PORTS_HTTP.includes(parseInt(port));
 
