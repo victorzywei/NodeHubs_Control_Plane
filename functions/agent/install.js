@@ -42,19 +42,73 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 install_base_packages() {
-  if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -y
-    apt-get install -y curl jq python3 ca-certificates
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y curl jq python3 ca-certificates
-  elif command -v yum >/dev/null 2>&1; then
-    yum install -y curl jq python3 ca-certificates
-  elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache curl jq python3 ca-certificates
-  else
-    echo "Unsupported package manager. Install curl/jq/python3 manually."
-    exit 1
+  local missing=()
+  for bin in curl jq; do
+    if ! command -v "$bin" >/dev/null 2>&1; then
+      missing+=("$bin")
+    fi
+  done
+
+  if [[ "\${#missing[@]}" -eq 0 ]]; then
+    return
   fi
+
+  install_jq_binary() {
+    local arch url tmp
+    arch="$(uname -m)"
+    case "$arch" in
+      x86_64|amd64) url="https://github.com/jqlang/jq/releases/latest/download/jq-linux-amd64" ;;
+      aarch64|arm64) url="https://github.com/jqlang/jq/releases/latest/download/jq-linux-arm64" ;;
+      *)
+        echo "Unsupported architecture for jq binary fallback: $arch"
+        return 1
+        ;;
+    esac
+    tmp="$(mktemp)"
+    if ! curl -fsSL "$url" -o "$tmp"; then
+      rm -f "$tmp"
+      return 1
+    fi
+    install -m 0755 "$tmp" /usr/local/bin/jq
+    rm -f "$tmp"
+  }
+
+  pkg_install_failed=0
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -y && apt-get install -y "\${missing[@]}" ca-certificates || pkg_install_failed=1
+  elif command -v dnf >/dev/null 2>&1; then
+    if dnf repolist enabled >/dev/null 2>&1; then
+      dnf install -y "\${missing[@]}" ca-certificates || pkg_install_failed=1
+    else
+      pkg_install_failed=1
+    fi
+  elif command -v yum >/dev/null 2>&1; then
+    if yum repolist enabled >/dev/null 2>&1; then
+      yum install -y "\${missing[@]}" ca-certificates || pkg_install_failed=1
+    else
+      pkg_install_failed=1
+    fi
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache "\${missing[@]}" ca-certificates || pkg_install_failed=1
+  else
+    pkg_install_failed=1
+  fi
+
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "Trying jq binary fallback..."
+    install_jq_binary || true
+  fi
+
+  for bin in curl jq; do
+    if ! command -v "$bin" >/dev/null 2>&1; then
+      echo "Missing required tools: \${missing[*]}"
+      if [[ "$pkg_install_failed" -eq 1 ]]; then
+        echo "Package-manager install failed or repositories are unavailable."
+      fi
+      echo "Please install '$bin' manually and rerun installer."
+      exit 1
+    fi
+  done
 }
 
 install_xray() {
@@ -65,171 +119,141 @@ install_xray() {
 }
 
 write_converter() {
-  cat > /usr/local/bin/nodehub-plan-to-xray.py <<'PY'
-#!/usr/bin/env python3
-import json
-import sys
+  mkdir -p /usr/local/lib/nodehub
+  cat > /usr/local/lib/nodehub/plan-to-xray.jq <<'JQ'
+def fail($msg): error($msg);
+def as_int($v; $d): try ($v | tonumber) catch $d;
+def nonempty: (tostring | length) > 0;
 
-def fail(msg):
-    print(msg, file=sys.stderr)
-    sys.exit(1)
-
-def as_int(v, default):
-    try:
-        return int(v)
-    except Exception:
-        return default
-
-def build_stream(inbound):
-    s = inbound.get("settings", {})
-    t = inbound.get("transport", "tcp")
-    tls_mode = inbound.get("tls_mode", "none")
-    stream = {"network": "tcp", "security": "none"}
-
-    if t == "ws":
-        stream["network"] = "ws"
-        stream["wsSettings"] = {
-            "path": s.get("path", "/"),
-            "headers": {"Host": s.get("host", "")},
+def build_stream:
+  . as $in
+  | ($in.settings // {}) as $s
+  | ($in.transport // "tcp") as $t
+  | ($in.tls_mode // "none") as $tls
+  | (
+      if $t == "ws" then
+        {"network":"ws","security":"none","wsSettings":{"path":($s.path // "/"),"headers":{"Host":($s.host // "")}}}
+      elif $t == "grpc" then
+        {"network":"grpc","security":"none","grpcSettings":{"serviceName":($s.service_name // "grpc"),"multiMode":($s.multi_mode // false)}}
+      elif $t == "h2" then
+        {"network":"http","security":"none","httpSettings":{"path":($s.path // "/"),"host":(if (($s.host // "") | nonempty) then [($s.host)] else [] end)}}
+      elif $t == "httpupgrade" then
+        {"network":"httpupgrade","security":"none","httpupgradeSettings":{"path":($s.path // "/"),"host":($s.host // "")}}
+      elif $t == "splithttp" then
+        {"network":"splithttp","security":"none","splithttpSettings":{"path":($s.path // "/")}}
+      elif ($t == "tcp" or $t == "udp") then
+        {"network":$t,"security":"none"}
+      else
+        fail("unsupported transport: \($t)")
+      end
+    ) as $base
+  | if $tls == "tls" then
+      $base + {
+        "security":"tls",
+        "tlsSettings":{
+          "serverName":($s.sni // ""),
+          "certificates":[{"certificateFile":($s.tls_cert_file // "/etc/ssl/certs/nodehub.crt"),"keyFile":($s.tls_key_file // "/etc/ssl/private/nodehub.key")}]
         }
-    elif t == "grpc":
-        stream["network"] = "grpc"
-        stream["grpcSettings"] = {
-            "serviceName": s.get("service_name", "grpc"),
-            "multiMode": bool(s.get("multi_mode", False)),
-        }
-    elif t == "h2":
-        stream["network"] = "http"
-        host = s.get("host", "")
-        stream["httpSettings"] = {
-            "path": s.get("path", "/"),
-            "host": [host] if host else [],
-        }
-    elif t == "httpupgrade":
-        stream["network"] = "httpupgrade"
-        stream["httpupgradeSettings"] = {
-            "path": s.get("path", "/"),
-            "host": s.get("host", ""),
-        }
-    elif t == "splithttp":
-        stream["network"] = "splithttp"
-        stream["splithttpSettings"] = {"path": s.get("path", "/")}
-    elif t in ("tcp", "udp"):
-        stream["network"] = t
-    else:
-        fail(f"unsupported transport: {t}")
+      }
+      | if (($s.alpn // null) | type) == "array" and (($s.alpn // []) | length) > 0 then
+          .tlsSettings.alpn = $s.alpn
+        else
+          .
+        end
+    elif $tls == "reality" then
+      ($s.reality_private_key // $s.private_key // "") as $pk
+      | ($s.sni // $s.host // "") as $sn
+      | if ($pk | nonempty) | not then
+          fail("reality requires settings.reality_private_key")
+        elif ($sn | nonempty) | not then
+          fail("reality requires settings.sni")
+        else
+          $base + {
+            "security":"reality",
+            "realitySettings":{
+              "show":false,
+              "dest":"\($sn):443",
+              "xver":0,
+              "serverNames":[ $sn ],
+              "privateKey":$pk,
+              "shortIds":[($s.short_id // "")]
+            }
+          }
+        end
+    else
+      $base
+    end;
 
-    if tls_mode == "tls":
-        cert = s.get("tls_cert_file", "/etc/ssl/certs/nodehub.crt")
-        key = s.get("tls_key_file", "/etc/ssl/private/nodehub.key")
-        stream["security"] = "tls"
-        stream["tlsSettings"] = {
-            "serverName": s.get("sni", ""),
-            "certificates": [{"certificateFile": cert, "keyFile": key}],
-        }
-        alpn = s.get("alpn")
-        if isinstance(alpn, list) and alpn:
-            stream["tlsSettings"]["alpn"] = alpn
-    elif tls_mode == "reality":
-        private_key = s.get("reality_private_key") or s.get("private_key")
-        server_name = s.get("sni") or s.get("host")
-        if not private_key:
-            fail("reality requires settings.reality_private_key")
-        if not server_name:
-            fail("reality requires settings.sni")
-        short_id = s.get("short_id", "")
-        stream["security"] = "reality"
-        stream["realitySettings"] = {
-            "show": False,
-            "dest": f"{server_name}:443",
-            "xver": 0,
-            "serverNames": [server_name],
-            "privateKey": private_key,
-            "shortIds": [short_id],
-        }
-
-    return stream
-
-def build_inbound(inbound, default_port):
-    s = inbound.get("settings", {})
-    proto = inbound.get("protocol")
-    port = as_int(s.get("port"), default_port)
-    tag = inbound.get("tag") or f"inbound-{proto}"
-
-    base = {
-        "tag": tag,
-        "protocol": proto,
-        "listen": "0.0.0.0",
-        "port": port,
-        "settings": {},
-        "sniffing": {"enabled": True, "destOverride": ["http", "tls", "quic"]},
-        "streamSettings": build_stream(inbound),
+def build_inbound($default_port):
+  . as $in
+  | ($in.settings // {}) as $s
+  | ($in.protocol // "") as $proto
+  | ($in.tag // ("inbound-" + $proto)) as $tag
+  | {
+      "tag": $tag,
+      "protocol": $proto,
+      "listen": "0.0.0.0",
+      "port": as_int(($s.port // $default_port); $default_port),
+      "settings": {},
+      "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]},
+      "streamSettings": ($in | build_stream)
     }
+  | if $proto == "vless" then
+      ($s.uuid // "") as $uuid
+      | if ($uuid | nonempty) | not then
+          fail("\($tag): vless missing uuid")
+        else
+          .settings = {"clients":[{"id":$uuid,"level":0,"email":$tag}],"decryption":"none"}
+          | if (($s.flow // "") | nonempty) then .settings.clients[0].flow = $s.flow else . end
+        end
+    elif $proto == "trojan" then
+      ($s.password // "") as $password
+      | if ($password | nonempty) | not then
+          fail("\($tag): trojan missing password")
+        else
+          .settings = {"clients":[{"password":$password,"email":$tag}]}
+        end
+    elif $proto == "vmess" then
+      ($s.uuid // "") as $uuid
+      | if ($uuid | nonempty) | not then
+          fail("\($tag): vmess missing uuid")
+        else
+          .settings = {"clients":[{"id":$uuid,"alterId":as_int(($s.alter_id // 0); 0),"email":$tag}],"disableInsecureEncryption":false}
+        end
+    elif $proto == "shadowsocks" then
+      ($s.method // "") as $method
+      | ($s.password // "") as $password
+      | if (($method | nonempty) and ($password | nonempty)) | not then
+          fail("\($tag): shadowsocks missing method/password")
+        else
+          .settings = {"method":$method,"password":$password,"network":"tcp,udp"}
+        end
+    else
+      fail("\($tag): unsupported protocol on xray: \($proto)")
+    end;
 
-    if proto == "vless":
-        uuid = s.get("uuid")
-        if not uuid:
-            fail(f"{tag}: vless missing uuid")
-        client = {"id": uuid, "level": 0, "email": tag}
-        flow = s.get("flow", "")
-        if flow:
-            client["flow"] = flow
-        base["settings"] = {"clients": [client], "decryption": "none"}
-    elif proto == "trojan":
-        password = s.get("password")
-        if not password:
-            fail(f"{tag}: trojan missing password")
-        base["settings"] = {"clients": [{"password": password, "email": tag}]}
-    elif proto == "vmess":
-        uuid = s.get("uuid")
-        if not uuid:
-            fail(f"{tag}: vmess missing uuid")
-        base["settings"] = {
-            "clients": [{"id": uuid, "alterId": as_int(s.get("alter_id"), 0), "email": tag}],
-            "disableInsecureEncryption": False,
-        }
-    elif proto == "shadowsocks":
-        method = s.get("method")
-        password = s.get("password")
-        if not method or not password:
-            fail(f"{tag}: shadowsocks missing method/password")
-        base["settings"] = {
-            "method": method,
-            "password": password,
-            "network": "tcp,udp",
-        }
-    else:
-        fail(f"{tag}: unsupported protocol on xray: {proto}")
+. as $raw
+| ($raw.data // $raw) as $plan
+| if ($plan.node_type // "") != "vps" then fail("only vps plan is supported") else . end
+| ($plan.inbounds // []) as $inbounds
+| if ($inbounds | length) == 0 then fail("plan has no inbounds") else . end
+| ($plan.routing.listen_port // 443 | as_int(.; 443)) as $default_port
+| {
+    "log":{"loglevel":"warning"},
+    "inbounds":($inbounds | map(build_inbound($default_port))),
+    "outbounds":[
+      {"protocol":"freedom","tag":"direct"},
+      {"protocol":"blackhole","tag":"blocked"}
+    ]
+  }
+JQ
 
-    return base
-
-def main():
-    raw = json.load(sys.stdin)
-    plan = raw.get("data", raw)
-    if plan.get("node_type") != "vps":
-        fail("only vps plan is supported")
-
-    default_port = as_int(plan.get("routing", {}).get("listen_port"), 443)
-    inbounds = plan.get("inbounds", [])
-    if not inbounds:
-        fail("plan has no inbounds")
-
-    built = [build_inbound(ib, default_port) for ib in inbounds]
-
-    out = {
-        "log": {"loglevel": "warning"},
-        "inbounds": built,
-        "outbounds": [
-            {"protocol": "freedom", "tag": "direct"},
-            {"protocol": "blackhole", "tag": "blocked"},
-        ],
-    }
-    json.dump(out, sys.stdout, indent=2)
-
-if __name__ == "__main__":
-    main()
-PY
-  chmod +x /usr/local/bin/nodehub-plan-to-xray.py
+  cat > /usr/local/bin/nodehub-plan-to-xray <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+jq -f /usr/local/lib/nodehub/plan-to-xray.jq
+SH
+  chmod +x /usr/local/bin/nodehub-plan-to-xray
 }
 
 write_agent_script() {
@@ -320,7 +344,7 @@ while true; do
       continue
     fi
 
-    if ! echo "$plan_resp" | /usr/local/bin/nodehub-plan-to-xray.py > "$XRAY_CONFIG" 2>/tmp/nodehub-apply.err; then
+    if ! echo "$plan_resp" | /usr/local/bin/nodehub-plan-to-xray > "$XRAY_CONFIG" 2>/tmp/nodehub-apply.err; then
       msg=$(tr '\n' ' ' < /tmp/nodehub-apply.err | cut -c1-500)
       log "plan convert failed: $msg"
       report_apply_result "$target_version" "failed" "plan convert failed: $msg"
@@ -412,4 +436,3 @@ echo "  journalctl -u nodehub-agent -f"
         },
     });
 }
-
