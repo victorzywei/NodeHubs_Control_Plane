@@ -75,21 +75,21 @@ install_base_packages() {
 
   pkg_install_failed=0
   if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -y && apt-get install -y "\${missing[@]}" ca-certificates || pkg_install_failed=1
+    apt-get update -y 2>/dev/null && apt-get install -y "\${missing[@]}" ca-certificates 2>/dev/null || pkg_install_failed=1
   elif command -v dnf >/dev/null 2>&1; then
     if dnf repolist enabled >/dev/null 2>&1; then
-      dnf install -y "\${missing[@]}" ca-certificates || pkg_install_failed=1
+      dnf install -y "\${missing[@]}" ca-certificates 2>/dev/null || pkg_install_failed=1
     else
       pkg_install_failed=1
     fi
   elif command -v yum >/dev/null 2>&1; then
     if yum repolist enabled >/dev/null 2>&1; then
-      yum install -y "\${missing[@]}" ca-certificates || pkg_install_failed=1
+      yum install -y "\${missing[@]}" ca-certificates 2>/dev/null || pkg_install_failed=1
     else
       pkg_install_failed=1
     fi
   elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache "\${missing[@]}" ca-certificates || pkg_install_failed=1
+    apk add --no-cache "\${missing[@]}" ca-certificates 2>/dev/null || pkg_install_failed=1
   else
     pkg_install_failed=1
   fi
@@ -104,18 +104,46 @@ install_base_packages() {
       echo "Missing required tools: \${missing[*]}"
       if [[ "$pkg_install_failed" -eq 1 ]]; then
         echo "Package-manager install failed or repositories are unavailable."
+        echo "Attempting manual installation..."
+        
+        # Try manual jq installation
+        if [[ "$bin" == "jq" ]]; then
+          install_jq_binary || {
+            echo "Failed to install jq manually."
+            echo "Please install jq manually: https://jqlang.github.io/jq/download/"
+            exit 1
+          }
+        else
+          echo "Please install '$bin' manually and rerun installer."
+          exit 1
+        fi
+      else
+        echo "Please install '$bin' manually and rerun installer."
+        exit 1
       fi
-      echo "Please install '$bin' manually and rerun installer."
-      exit 1
     fi
   done
 }
 
 install_xray() {
   if command -v xray >/dev/null 2>&1; then
-    return
+    echo "Xray already installed."
+    return 0
   fi
-  bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u root
+  
+  echo "Installing Xray..."
+  if bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u root 2>/tmp/xray-install.err; then
+    echo "Xray installed successfully."
+  else
+    echo "Warning: Xray installation encountered issues, but may have succeeded."
+    cat /tmp/xray-install.err 2>/dev/null || true
+  fi
+  
+  # Verify xray binary exists
+  if ! command -v xray >/dev/null 2>&1; then
+    echo "Error: Xray installation failed"
+    exit 1
+  fi
 }
 
 write_converter() {
@@ -417,16 +445,55 @@ write_agent_script
 write_systemd_unit
 write_env_file
 
-systemctl daemon-reload
-systemctl enable xray >/dev/null 2>&1 || true
-systemctl restart xray
-systemctl enable nodehub-agent
-systemctl restart nodehub-agent
+systemctl daemon-reload 2>/dev/null || true
+systemctl enable xray 2>/dev/null || true
 
-echo "NodeHub agent installed."
+if systemctl restart xray 2>/tmp/xray-start.err; then
+  echo "Xray service started successfully."
+elif systemctl start xray 2>/tmp/xray-start2.err; then
+  echo "Xray service started successfully."
+else
+  echo "Warning: systemctl failed, starting Xray manually..."
+  cat /tmp/xray-start.err /tmp/xray-start2.err 2>/dev/null || true
+  mkdir -p /var/log/xray
+  nohup /usr/local/bin/xray run -config /usr/local/etc/xray/config.json >/var/log/xray/xray.log 2>&1 &
+  echo "Xray started in background (PID: $!)"
+fi
+
+systemctl enable nodehub-agent 2>/dev/null || true
+if systemctl restart nodehub-agent 2>/tmp/agent-start.err; then
+  echo "NodeHub agent service started successfully."
+elif systemctl start nodehub-agent 2>/tmp/agent-start2.err; then
+  echo "NodeHub agent service started successfully."
+else
+  echo "Warning: systemctl failed, starting agent manually..."
+  cat /tmp/agent-start.err /tmp/agent-start2.err 2>/dev/null || true
+  nohup /usr/local/bin/nodehub-agent.sh >/var/log/nodehub-agent.log 2>&1 &
+  echo "NodeHub agent started in background (PID: $!)"
+fi
+
+echo ""
+echo "=========================================="
+echo "NodeHub agent installation completed!"
+echo "=========================================="
+echo ""
+echo "Configuration:"
+echo "  Node ID: $NODE_ID"
+echo "  API Base: $API_BASE"
+echo "  Poll Interval: ${POLL_INTERVAL}s"
+echo ""
 echo "Check status:"
-echo "  systemctl status nodehub-agent --no-pager"
-echo "  journalctl -u nodehub-agent -f"
+if command -v systemctl >/dev/null 2>&1 && systemctl is-active nodehub-agent >/dev/null 2>&1; then
+  echo "  systemctl status nodehub-agent --no-pager"
+  echo "  systemctl status xray --no-pager"
+  echo "  journalctl -u nodehub-agent -f"
+else
+  echo "  ps aux | grep nodehub-agent"
+  echo "  ps aux | grep xray"
+  echo "  tail -f /var/log/nodehub-agent.log"
+  echo "  tail -f /var/log/xray/xray.log"
+fi
+echo ""
 `;
 
     return new Response(script, {
