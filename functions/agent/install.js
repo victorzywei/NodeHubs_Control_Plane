@@ -28,9 +28,9 @@ build_github_url() {
     return
   fi
 
-  local mirror="${GITHUB_MIRROR%/}"
+  local mirror="\${GITHUB_MIRROR%/}"
   if [[ "$mirror" == *"{url}"* ]]; then
-    echo "${mirror//\{url\}/$url}"
+    echo "\${mirror//\{url\}/$url}"
   else
     echo "$mirror/$url"
   fi
