@@ -47,6 +47,8 @@ export async function onRequestPost(context) {
         region: body.region || '',
         tags: body.tags || [],
         github_mirror: typeof body.github_mirror === 'string' ? body.github_mirror.trim() : '',
+        cf_api_token: typeof body.cf_api_token === 'string' ? body.cf_api_token.trim() : '',
+        cf_zone_id: typeof body.cf_zone_id === 'string' ? body.cf_zone_id.trim() : '',
         node_token: generateToken(),
         capabilities: DEFAULT_CAPABILITIES[body.node_type] || DEFAULT_CAPABILITIES.vps,
         target_version: 0,

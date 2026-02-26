@@ -11,6 +11,8 @@ NODE_TOKEN=""
 POLL_INTERVAL=15
 GITHUB_MIRROR=""
 TLS_DOMAIN=""
+CF_API_TOKEN=""
+CF_ZONE_ID=""
 XRAY_CONFIG="/usr/local/etc/xray/config.json"
 NODEHUB_DIR="/etc/nodehub"
 STATE_DIR="/var/lib/nodehub"
@@ -18,7 +20,7 @@ STATE_DIR="/var/lib/nodehub"
 usage() {
   cat <<'EOF'
 Usage:
-  bash install.sh --api-base <url> --node-id <id> --node-token <token> [--poll-interval 15] [--github-mirror <url>] [--tls-domain <domain>]
+  bash install.sh --api-base <url> --node-id <id> --node-token <token> [--poll-interval 15] [--github-mirror <url>] [--tls-domain <domain>] [--cf-api-token <token>] [--cf-zone-id <zone_id>]
 EOF
 }
 
@@ -45,6 +47,8 @@ while [[ $# -gt 0 ]]; do
     --poll-interval) POLL_INTERVAL="$2"; shift 2 ;;
     --github-mirror) GITHUB_MIRROR="$2"; shift 2 ;;
     --tls-domain) TLS_DOMAIN="$2"; shift 2 ;;
+    --cf-api-token) CF_API_TOKEN="$2"; shift 2 ;;
+    --cf-zone-id) CF_ZONE_ID="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1"; usage; exit 1 ;;
   esac
@@ -279,10 +283,24 @@ install_tls_certificate() {
 
   "$ACME_BIN" --set-default-ca --server letsencrypt >/dev/null 2>&1 || true
 
-  if ! "$ACME_BIN" --issue -d "$TLS_DOMAIN" --standalone --keylength ec-256; then
-    echo "Error: failed to issue certificate for $TLS_DOMAIN"
-    echo "Make sure DNS A/AAAA of the entry domain points to this VPS and ports 80/443 are reachable."
-    exit 1
+  if [[ -n "$CF_API_TOKEN" ]]; then
+    echo "Issuing certificate via Cloudflare DNS API..."
+    export CF_Token="$CF_API_TOKEN"
+    if [[ -n "$CF_ZONE_ID" ]]; then
+      export CF_Zone_ID="$CF_ZONE_ID"
+    fi
+    if ! "$ACME_BIN" --issue -d "$TLS_DOMAIN" --dns dns_cf --keylength ec-256; then
+      echo "Error: failed to issue certificate via Cloudflare DNS for $TLS_DOMAIN"
+      echo "Check CF token permissions (Zone.DNS Edit + Zone.Zone Read) and zone scope."
+      exit 1
+    fi
+  else
+    echo "Issuing certificate via standalone HTTP challenge..."
+    if ! "$ACME_BIN" --issue -d "$TLS_DOMAIN" --standalone --keylength ec-256; then
+      echo "Error: failed to issue certificate for $TLS_DOMAIN"
+      echo "Either provide --cf-api-token for DNS mode, or make sure ports 80/443 are reachable and not occupied."
+      exit 1
+    fi
   fi
 
   if ! "$ACME_BIN" --install-cert -d "$TLS_DOMAIN" --ecc \
@@ -706,6 +724,11 @@ if [[ -n "$GITHUB_MIRROR" ]]; then
 fi
 if [[ -n "$TLS_DOMAIN" ]]; then
   echo "  TLS Domain: $TLS_DOMAIN"
+  if [[ -n "$CF_API_TOKEN" ]]; then
+    echo "  TLS Mode  : Cloudflare DNS"
+  else
+    echo "  TLS Mode  : Standalone HTTP"
+  fi
   echo "  TLS Cert: /etc/ssl/certs/nodehub.crt"
   echo "  TLS Key : /etc/ssl/private/nodehub.key"
   echo "  TLS Renewal: enabled (acme.sh + timer/cron)"

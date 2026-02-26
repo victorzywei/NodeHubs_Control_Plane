@@ -11,7 +11,7 @@ const editId = ref(null)
 const detailNode = ref(null)
 const installCmd = ref('')
 
-const form = ref({ name: '', node_type: 'vps', entry_domain: '', entry_ip: '', region: '', tags: '', github_mirror: '', rotate_token: false })
+const form = ref({ name: '', node_type: 'vps', entry_domain: '', entry_ip: '', region: '', tags: '', github_mirror: '', cf_api_token: '', cf_zone_id: '', rotate_token: false })
 
 onMounted(() => loadNodes())
 
@@ -23,7 +23,7 @@ async function loadNodes() {
 
 function openCreate() {
     editId.value = null
-    form.value = { name: '', node_type: 'vps', entry_domain: '', entry_ip: '', region: '', tags: '', github_mirror: '', rotate_token: false }
+    form.value = { name: '', node_type: 'vps', entry_domain: '', entry_ip: '', region: '', tags: '', github_mirror: '', cf_api_token: '', cf_zone_id: '', rotate_token: false }
     showModal.value = true
 }
 
@@ -39,6 +39,8 @@ async function openEdit(nid) {
             region: node.region || '',
             tags: (node.tags || []).join(', '),
             github_mirror: node.github_mirror || '',
+            cf_api_token: node.cf_api_token || '',
+            cf_zone_id: node.cf_zone_id || '',
             rotate_token: false,
         }
         showModal.value = true
@@ -69,6 +71,8 @@ async function saveNode() {
         region: form.value.region.trim(),
         tags: form.value.tags.split(',').map(t => t.trim()).filter(Boolean),
         github_mirror: form.value.github_mirror.trim(),
+        cf_api_token: form.value.cf_api_token.trim(),
+        cf_zone_id: form.value.cf_zone_id.trim(),
     }
     try {
         if (editId.value) {
@@ -251,6 +255,14 @@ function timeAgo(dateStr) {
                             <label class="block text-xs font-medium text-text-secondary mb-1.5">GitHub 镜像网址（可选）</label>
                             <input v-model="form.github_mirror" class="form-input" placeholder="例如: https://ghfast.top 或 https://ghproxy.com/{url}" />
                         </div>
+                        <div>
+                            <label class="block text-xs font-medium text-text-secondary mb-1.5">Cloudflare API Token（DNS 签发）</label>
+                            <input v-model="form.cf_api_token" class="form-input" placeholder="Zone.DNS Edit + Zone.Zone Read" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-text-secondary mb-1.5">Cloudflare Zone ID（可选）</label>
+                            <input v-model="form.cf_zone_id" class="form-input" placeholder="可留空，留空时自动查询 Zone" />
+                        </div>
 
                         <label v-if="editId" class="flex items-center gap-2 py-2 cursor-pointer text-sm text-text-secondary">
                             <input type="checkbox" v-model="form.rotate_token" class="accent-accent" />
@@ -302,6 +314,14 @@ function timeAgo(dateStr) {
                         <div>
                             <div class="text-[10px] text-text-muted mb-0.5">GitHub 镜像</div>
                             <div class="text-xs font-mono break-all">{{ detailNode.github_mirror || '-' }}</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-text-muted mb-0.5">CF DNS 签发</div>
+                            <div class="text-xs">{{ detailNode.cf_api_token ? '已配置' : '未配置' }}</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-text-muted mb-0.5">CF Zone ID</div>
+                            <div class="text-xs font-mono break-all">{{ detailNode.cf_zone_id || '-' }}</div>
                         </div>
                         <div>
                             <div class="text-[10px] text-text-muted mb-0.5">创建时间</div>

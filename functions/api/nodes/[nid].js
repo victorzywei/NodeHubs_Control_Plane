@@ -34,10 +34,11 @@ export async function onRequestPatch(context) {
 
     const body = await request.json();
 
-    const allowedFields = ['name', 'entry_domain', 'entry_ip', 'region', 'tags', 'capabilities', 'github_mirror'];
+    const allowedFields = ['name', 'entry_domain', 'entry_ip', 'region', 'tags', 'capabilities', 'github_mirror', 'cf_api_token', 'cf_zone_id'];
     for (const field of allowedFields) {
         if (body[field] !== undefined) {
-            node[field] = field === 'github_mirror' && typeof body[field] === 'string'
+            const trimFields = ['github_mirror', 'cf_api_token', 'cf_zone_id'];
+            node[field] = trimFields.includes(field) && typeof body[field] === 'string'
                 ? body[field].trim()
                 : body[field];
         }

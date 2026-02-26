@@ -151,6 +151,8 @@ async function onRequestGet(context) {
   const scriptUrl = `${origin}/agent/install`;
   const githubMirror = typeof node.github_mirror === "string" ? node.github_mirror.trim() : "";
   const tlsDomain = typeof node.entry_domain === "string" ? node.entry_domain.trim() : "";
+  const cfApiToken = typeof node.cf_api_token === "string" ? node.cf_api_token.trim() : "";
+  const cfZoneId = typeof node.cf_zone_id === "string" ? node.cf_zone_id.trim() : "";
   const command = [
     `curl -fsSL ${shellQuote(scriptUrl)}`,
     " | sudo bash -s --",
@@ -159,7 +161,9 @@ async function onRequestGet(context) {
     ` --node-token ${shellQuote(node.node_token)}`,
     " --poll-interval 15",
     ...githubMirror ? [` --github-mirror ${shellQuote(githubMirror)}`] : [],
-    ...tlsDomain ? [` --tls-domain ${shellQuote(tlsDomain)}`] : []
+    ...tlsDomain ? [` --tls-domain ${shellQuote(tlsDomain)}`] : [],
+    ...cfApiToken ? [` --cf-api-token ${shellQuote(cfApiToken)}`] : [],
+    ...cfZoneId ? [` --cf-zone-id ${shellQuote(cfZoneId)}`] : []
   ].join("");
   return ok({
     node_id: node.id,
@@ -619,10 +623,11 @@ async function onRequestPatch(context) {
   const node = await kvGet(KV, KEY.node(nid));
   if (!node) return err("NODE_NOT_FOUND", "Node not found", 404);
   const body = await request.json();
-  const allowedFields = ["name", "entry_domain", "entry_ip", "region", "tags", "capabilities", "github_mirror"];
+  const allowedFields = ["name", "entry_domain", "entry_ip", "region", "tags", "capabilities", "github_mirror", "cf_api_token", "cf_zone_id"];
   for (const field of allowedFields) {
     if (body[field] !== void 0) {
-      node[field] = field === "github_mirror" && typeof body[field] === "string" ? body[field].trim() : body[field];
+      const trimFields = ["github_mirror", "cf_api_token", "cf_zone_id"];
+      node[field] = trimFields.includes(field) && typeof body[field] === "string" ? body[field].trim() : body[field];
     }
   }
   if (body.rotate_token) {
@@ -826,6 +831,8 @@ NODE_TOKEN=""
 POLL_INTERVAL=15
 GITHUB_MIRROR=""
 TLS_DOMAIN=""
+CF_API_TOKEN=""
+CF_ZONE_ID=""
 XRAY_CONFIG="/usr/local/etc/xray/config.json"
 NODEHUB_DIR="/etc/nodehub"
 STATE_DIR="/var/lib/nodehub"
@@ -833,7 +840,7 @@ STATE_DIR="/var/lib/nodehub"
 usage() {
   cat <<'EOF'
 Usage:
-  bash install.sh --api-base <url> --node-id <id> --node-token <token> [--poll-interval 15] [--github-mirror <url>] [--tls-domain <domain>]
+  bash install.sh --api-base <url> --node-id <id> --node-token <token> [--poll-interval 15] [--github-mirror <url>] [--tls-domain <domain>] [--cf-api-token <token>] [--cf-zone-id <zone_id>]
 EOF
 }
 
@@ -860,6 +867,8 @@ while [[ $# -gt 0 ]]; do
     --poll-interval) POLL_INTERVAL="$2"; shift 2 ;;
     --github-mirror) GITHUB_MIRROR="$2"; shift 2 ;;
     --tls-domain) TLS_DOMAIN="$2"; shift 2 ;;
+    --cf-api-token) CF_API_TOKEN="$2"; shift 2 ;;
+    --cf-zone-id) CF_ZONE_ID="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1"; usage; exit 1 ;;
   esac
@@ -1094,10 +1103,24 @@ install_tls_certificate() {
 
   "$ACME_BIN" --set-default-ca --server letsencrypt >/dev/null 2>&1 || true
 
-  if ! "$ACME_BIN" --issue -d "$TLS_DOMAIN" --standalone --keylength ec-256; then
-    echo "Error: failed to issue certificate for $TLS_DOMAIN"
-    echo "Make sure DNS A/AAAA of the entry domain points to this VPS and ports 80/443 are reachable."
-    exit 1
+  if [[ -n "$CF_API_TOKEN" ]]; then
+    echo "Issuing certificate via Cloudflare DNS API..."
+    export CF_Token="$CF_API_TOKEN"
+    if [[ -n "$CF_ZONE_ID" ]]; then
+      export CF_Zone_ID="$CF_ZONE_ID"
+    fi
+    if ! "$ACME_BIN" --issue -d "$TLS_DOMAIN" --dns dns_cf --keylength ec-256; then
+      echo "Error: failed to issue certificate via Cloudflare DNS for $TLS_DOMAIN"
+      echo "Check CF token permissions (Zone.DNS Edit + Zone.Zone Read) and zone scope."
+      exit 1
+    fi
+  else
+    echo "Issuing certificate via standalone HTTP challenge..."
+    if ! "$ACME_BIN" --issue -d "$TLS_DOMAIN" --standalone --keylength ec-256; then
+      echo "Error: failed to issue certificate for $TLS_DOMAIN"
+      echo "Either provide --cf-api-token for DNS mode, or make sure ports 80/443 are reachable and not occupied."
+      exit 1
+    fi
   fi
 
   if ! "$ACME_BIN" --install-cert -d "$TLS_DOMAIN" --ecc     --fullchain-file /etc/ssl/certs/nodehub.crt     --key-file /etc/ssl/private/nodehub.key     --reloadcmd "systemctl restart xray >/dev/null 2>&1 || true"; then
@@ -1507,6 +1530,11 @@ if [[ -n "$GITHUB_MIRROR" ]]; then
 fi
 if [[ -n "$TLS_DOMAIN" ]]; then
   echo "  TLS Domain: $TLS_DOMAIN"
+  if [[ -n "$CF_API_TOKEN" ]]; then
+    echo "  TLS Mode  : Cloudflare DNS"
+  else
+    echo "  TLS Mode  : Standalone HTTP"
+  fi
   echo "  TLS Cert: /etc/ssl/certs/nodehub.crt"
   echo "  TLS Key : /etc/ssl/private/nodehub.key"
   echo "  TLS Renewal: enabled (acme.sh + timer/cron)"
@@ -1905,6 +1933,8 @@ async function onRequestPost4(context) {
     region: body.region || "",
     tags: body.tags || [],
     github_mirror: typeof body.github_mirror === "string" ? body.github_mirror.trim() : "",
+    cf_api_token: typeof body.cf_api_token === "string" ? body.cf_api_token.trim() : "",
+    cf_zone_id: typeof body.cf_zone_id === "string" ? body.cf_zone_id.trim() : "",
     node_token: generateToken(),
     capabilities: DEFAULT_CAPABILITIES[body.node_type] || DEFAULT_CAPABILITIES.vps,
     target_version: 0,
@@ -2534,7 +2564,7 @@ async function onRequest(context) {
 }
 __name(onRequest, "onRequest");
 
-// ../.wrangler/tmp/pages-hyfAiY/functionsRoutes-0.32459454492062045.mjs
+// ../.wrangler/tmp/pages-wI09QP/functionsRoutes-0.349655154295888.mjs
 var routes = [
   {
     routePath: "/api/nodes/:nid/install",

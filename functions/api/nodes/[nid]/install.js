@@ -25,6 +25,8 @@ export async function onRequestGet(context) {
     const scriptUrl = `${origin}/agent/install`;
     const githubMirror = typeof node.github_mirror === 'string' ? node.github_mirror.trim() : '';
     const tlsDomain = typeof node.entry_domain === 'string' ? node.entry_domain.trim() : '';
+    const cfApiToken = typeof node.cf_api_token === 'string' ? node.cf_api_token.trim() : '';
+    const cfZoneId = typeof node.cf_zone_id === 'string' ? node.cf_zone_id.trim() : '';
     const command = [
         `curl -fsSL ${shellQuote(scriptUrl)}`,
         ' | sudo bash -s --',
@@ -34,6 +36,8 @@ export async function onRequestGet(context) {
         ' --poll-interval 15',
         ...(githubMirror ? [` --github-mirror ${shellQuote(githubMirror)}`] : []),
         ...(tlsDomain ? [` --tls-domain ${shellQuote(tlsDomain)}`] : []),
+        ...(cfApiToken ? [` --cf-api-token ${shellQuote(cfApiToken)}`] : []),
+        ...(cfZoneId ? [` --cf-zone-id ${shellQuote(cfZoneId)}`] : []),
     ].join('');
 
     return ok({
