@@ -5,6 +5,18 @@ import { ok, err } from '../_lib/response.js';
 
 const MAX_HISTORY = 20;
 
+function extractAppliedProtocols(plan) {
+    if (!plan || typeof plan !== 'object') return [];
+
+    const entries = plan.inbounds || (plan.runtime_config && plan.runtime_config.configs) || [];
+    const protocols = [];
+    for (const entry of entries) {
+        const proto = typeof entry?.protocol === 'string' ? entry.protocol.trim() : '';
+        if (proto) protocols.push(proto);
+    }
+    return [...new Set(protocols)];
+}
+
 export async function onRequestPost(context) {
     const { request, env } = context;
 
@@ -22,13 +34,17 @@ export async function onRequestPost(context) {
 
     if (!node) return err('NODE_NOT_FOUND', 'Node not found', 404);
     if (node.node_token !== nodeToken) return err('INVALID_TOKEN', 'Invalid node token', 401);
+    const plan = await kvGet(KV, KEY.plan(node_id, version));
+    const appliedProtocols = extractAppliedProtocols(plan);
 
     if (!node.apply_history) node.apply_history = [];
     const normalizedMessage = String(message || '');
     const existingRecord = node.apply_history.find(h => h.version === version);
+    const existingProtocols = Array.isArray(existingRecord?.protocols) ? existingRecord.protocols : [];
     const sameAsExisting = existingRecord
         && existingRecord.status === status
-        && String(existingRecord.message || '') === normalizedMessage;
+        && String(existingRecord.message || '') === normalizedMessage
+        && JSON.stringify(existingProtocols) === JSON.stringify(appliedProtocols);
     if (sameAsExisting) {
         return ok({ message: 'Already recorded', version, status: existingRecord.status });
     }
@@ -51,12 +67,14 @@ export async function onRequestPost(context) {
     if (existingRecord) {
         existingRecord.status = status;
         existingRecord.message = normalizedMessage;
+        existingRecord.protocols = appliedProtocols;
         existingRecord.timestamp = nowIso;
     } else {
         node.apply_history.unshift({
             version,
             status,
             message: normalizedMessage,
+            protocols: appliedProtocols,
             timestamp: nowIso,
         });
         node.apply_history = node.apply_history.slice(0, MAX_HISTORY);

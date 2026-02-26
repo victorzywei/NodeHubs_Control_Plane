@@ -382,6 +382,11 @@ function timeAgo(dateStr) {
                                             {{ h.status === 'success' ? '成功' : '失败' }}
                                         </span>
                                     </div>
+                                    <div v-if="Array.isArray(h.protocols) && h.protocols.length" class="mt-1 flex flex-wrap gap-1">
+                                        <span v-for="p in h.protocols" :key="`${h.version}-${p}`" class="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-text-secondary">
+                                            {{ p }}
+                                        </span>
+                                    </div>
                                     <div v-if="h.message" class="text-[10px] text-text-secondary break-all">{{ h.message }}</div>
                                     <div class="text-[10px] text-text-muted">{{ new Date(h.timestamp).toLocaleString('zh-CN') }}</div>
                                 </div>
