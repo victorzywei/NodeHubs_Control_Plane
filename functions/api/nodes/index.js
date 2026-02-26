@@ -46,6 +46,7 @@ export async function onRequestPost(context) {
         entry_ip: body.entry_ip || '',
         region: body.region || '',
         tags: body.tags || [],
+        github_mirror: typeof body.github_mirror === 'string' ? body.github_mirror.trim() : '',
         node_token: generateToken(),
         capabilities: DEFAULT_CAPABILITIES[body.node_type] || DEFAULT_CAPABILITIES.vps,
         target_version: 0,

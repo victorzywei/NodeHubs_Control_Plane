@@ -23,6 +23,7 @@ export async function onRequestGet(context) {
 
     const origin = new URL(request.url).origin;
     const scriptUrl = `${origin}/agent/install`;
+    const githubMirror = typeof node.github_mirror === 'string' ? node.github_mirror.trim() : '';
     const command = [
         `curl -fsSL ${shellQuote(scriptUrl)}`,
         ' | sudo bash -s --',
@@ -30,6 +31,7 @@ export async function onRequestGet(context) {
         ` --node-id ${shellQuote(node.id)}`,
         ` --node-token ${shellQuote(node.node_token)}`,
         ' --poll-interval 15',
+        ...(githubMirror ? [` --github-mirror ${shellQuote(githubMirror)}`] : []),
     ].join('');
 
     return ok({
@@ -38,4 +40,3 @@ export async function onRequestGet(context) {
         command,
     });
 }
-

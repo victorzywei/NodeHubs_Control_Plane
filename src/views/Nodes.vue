@@ -11,7 +11,7 @@ const editId = ref(null)
 const detailNode = ref(null)
 const installCmd = ref('')
 
-const form = ref({ name: '', node_type: 'vps', entry_domain: '', entry_ip: '', region: '', tags: '', rotate_token: false })
+const form = ref({ name: '', node_type: 'vps', entry_domain: '', entry_ip: '', region: '', tags: '', github_mirror: '', rotate_token: false })
 
 onMounted(() => loadNodes())
 
@@ -23,7 +23,7 @@ async function loadNodes() {
 
 function openCreate() {
     editId.value = null
-    form.value = { name: '', node_type: 'vps', entry_domain: '', entry_ip: '', region: '', tags: '', rotate_token: false }
+    form.value = { name: '', node_type: 'vps', entry_domain: '', entry_ip: '', region: '', tags: '', github_mirror: '', rotate_token: false }
     showModal.value = true
 }
 
@@ -38,6 +38,7 @@ async function openEdit(nid) {
             entry_ip: node.entry_ip || '',
             region: node.region || '',
             tags: (node.tags || []).join(', '),
+            github_mirror: node.github_mirror || '',
             rotate_token: false,
         }
         showModal.value = true
@@ -67,6 +68,7 @@ async function saveNode() {
         entry_ip: form.value.entry_ip.trim(),
         region: form.value.region.trim(),
         tags: form.value.tags.split(',').map(t => t.trim()).filter(Boolean),
+        github_mirror: form.value.github_mirror.trim(),
     }
     try {
         if (editId.value) {
@@ -243,6 +245,11 @@ function timeAgo(dateStr) {
                                 <label class="block text-xs font-medium text-text-secondary mb-1.5">标签 (逗号分隔)</label>
                                 <input v-model="form.tags" class="form-input" placeholder="premium, cdn" />
                             </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-medium text-text-secondary mb-1.5">GitHub 镜像网址（可选）</label>
+                            <input v-model="form.github_mirror" class="form-input" placeholder="例如: https://ghfast.top 或 https://ghproxy.com/{url}" />
                         </div>
 
                         <label v-if="editId" class="flex items-center gap-2 py-2 cursor-pointer text-sm text-text-secondary">

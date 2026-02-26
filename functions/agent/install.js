@@ -9,6 +9,7 @@ API_BASE=""
 NODE_ID=""
 NODE_TOKEN=""
 POLL_INTERVAL=15
+GITHUB_MIRROR=""
 XRAY_CONFIG="/usr/local/etc/xray/config.json"
 NODEHUB_DIR="/etc/nodehub"
 STATE_DIR="/var/lib/nodehub"
@@ -16,8 +17,23 @@ STATE_DIR="/var/lib/nodehub"
 usage() {
   cat <<'EOF'
 Usage:
-  bash install.sh --api-base <url> --node-id <id> --node-token <token> [--poll-interval 15]
+  bash install.sh --api-base <url> --node-id <id> --node-token <token> [--poll-interval 15] [--github-mirror <url>]
 EOF
+}
+
+build_github_url() {
+  local url="$1"
+  if [[ -z "$GITHUB_MIRROR" ]]; then
+    echo "$url"
+    return
+  fi
+
+  local mirror="${GITHUB_MIRROR%/}"
+  if [[ "$mirror" == *"{url}"* ]]; then
+    echo "${mirror//\{url\}/$url}"
+  else
+    echo "$mirror/$url"
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -26,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     --node-id) NODE_ID="$2"; shift 2 ;;
     --node-token) NODE_TOKEN="$2"; shift 2 ;;
     --poll-interval) POLL_INTERVAL="$2"; shift 2 ;;
+    --github-mirror) GITHUB_MIRROR="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1"; usage; exit 1 ;;
   esac
@@ -39,6 +56,11 @@ fi
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Please run as root (sudo)."
   exit 1
+fi
+
+if [[ -n "$GITHUB_MIRROR" && ! "$GITHUB_MIRROR" =~ ^https?:// ]]; then
+  echo "Warning: invalid --github-mirror value '$GITHUB_MIRROR', fallback to default GitHub URL."
+  GITHUB_MIRROR=""
 fi
 
 install_base_packages() {
@@ -57,8 +79,8 @@ install_base_packages() {
     local arch url tmp
     arch="$(uname -m)"
     case "$arch" in
-      x86_64|amd64) url="https://github.com/jqlang/jq/releases/latest/download/jq-linux-amd64" ;;
-      aarch64|arm64) url="https://github.com/jqlang/jq/releases/latest/download/jq-linux-arm64" ;;
+      x86_64|amd64) url="$(build_github_url "https://github.com/jqlang/jq/releases/latest/download/jq-linux-amd64")" ;;
+      aarch64|arm64) url="$(build_github_url "https://github.com/jqlang/jq/releases/latest/download/jq-linux-arm64")" ;;
       *)
         echo "Unsupported architecture for jq binary fallback: $arch"
         return 1
@@ -132,18 +154,18 @@ install_xray() {
   fi
   
   echo "Installing Xray..."
-  if bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u root 2>/tmp/xray-install.err; then
-    echo "Xray installed successfully."
-  else
-    echo "Warning: Xray installation encountered issues, but may have succeeded."
-    cat /tmp/xray-install.err 2>/dev/null || true
-  fi
+  local xray_install_url
+  xray_install_url="$(build_github_url "https://github.com/XTLS/Xray-install/raw/main/install-release.sh")"
+  # Use official installer but suppress systemd errors
+  bash -c "$(curl -fsSL "$xray_install_url")" @ install -u root 2>&1 | grep -v "libsystemd-shared" | grep -v "systemctl: error" || true
   
   # Verify xray binary exists
   if ! command -v xray >/dev/null 2>&1; then
     echo "Error: Xray installation failed"
     exit 1
   fi
+  
+  echo "Xray installed successfully."
 }
 
 write_converter() {
@@ -445,53 +467,81 @@ write_agent_script
 write_systemd_unit
 write_env_file
 
-systemctl daemon-reload 2>/dev/null || true
-systemctl enable xray 2>/dev/null || true
-
-if systemctl restart xray 2>/tmp/xray-start.err; then
-  echo "Xray service started successfully."
-elif systemctl start xray 2>/tmp/xray-start2.err; then
-  echo "Xray service started successfully."
-else
-  echo "Warning: systemctl failed, starting Xray manually..."
-  cat /tmp/xray-start.err /tmp/xray-start2.err 2>/dev/null || true
-  mkdir -p /var/log/xray
-  nohup /usr/local/bin/xray run -config /usr/local/etc/xray/config.json >/var/log/xray/xray.log 2>&1 &
-  echo "Xray started in background (PID: $!)"
+# Try systemd first, but don't fail if it doesn't work
+USE_SYSTEMD=false
+if command -v systemctl >/dev/null 2>&1; then
+  # Test if systemctl actually works
+  if systemctl daemon-reload 2>/dev/null; then
+    USE_SYSTEMD=true
+  fi
 fi
 
-systemctl enable nodehub-agent 2>/dev/null || true
-if systemctl restart nodehub-agent 2>/tmp/agent-start.err; then
-  echo "NodeHub agent service started successfully."
-elif systemctl start nodehub-agent 2>/tmp/agent-start2.err; then
-  echo "NodeHub agent service started successfully."
-else
-  echo "Warning: systemctl failed, starting agent manually..."
-  cat /tmp/agent-start.err /tmp/agent-start2.err 2>/dev/null || true
+if [ "$USE_SYSTEMD" = true ]; then
+  echo "Starting services with systemd..."
+  systemctl enable xray 2>/dev/null || true
+  systemctl enable nodehub-agent 2>/dev/null || true
+  
+  if systemctl restart xray 2>/dev/null && systemctl restart nodehub-agent 2>/dev/null; then
+    echo "Services started successfully via systemd."
+  else
+    echo "systemd start failed, falling back to manual start..."
+    USE_SYSTEMD=false
+  fi
+fi
+
+if [ "$USE_SYSTEMD" = false ]; then
+  echo "Starting services manually..."
+  
+  # Kill any existing processes
+  pkill -f "xray run" 2>/dev/null || true
+  pkill -f "nodehub-agent.sh" 2>/dev/null || true
+  sleep 1
+  
+  # Start Xray
+  mkdir -p /var/log/xray
+  nohup /usr/local/bin/xray run -config "$XRAY_CONFIG" >/var/log/xray/xray.log 2>&1 &
+  XRAY_PID=$!
+  echo "Xray started (PID: $XRAY_PID)"
+  
+  # Start NodeHub agent
   nohup /usr/local/bin/nodehub-agent.sh >/var/log/nodehub-agent.log 2>&1 &
-  echo "NodeHub agent started in background (PID: $!)"
+  AGENT_PID=$!
+  echo "NodeHub agent started (PID: $AGENT_PID)"
+  
+  # Create a simple init script for auto-start on reboot
+  cat > /etc/rc.local <<'RCLOCAL'
+#!/bin/bash
+/usr/local/bin/xray run -config /usr/local/etc/xray/config.json >/var/log/xray/xray.log 2>&1 &
+/usr/local/bin/nodehub-agent.sh >/var/log/nodehub-agent.log 2>&1 &
+RCLOCAL
+  chmod +x /etc/rc.local 2>/dev/null || true
 fi
 
 echo ""
 echo "=========================================="
-echo "NodeHub agent installation completed!"
+echo "✓ NodeHub agent installation completed!"
 echo "=========================================="
 echo ""
 echo "Configuration:"
 echo "  Node ID: $NODE_ID"
 echo "  API Base: $API_BASE"
 echo "  Poll Interval: ${POLL_INTERVAL}s"
+if [[ -n "$GITHUB_MIRROR" ]]; then
+  echo "  GitHub Mirror: $GITHUB_MIRROR"
+fi
 echo ""
-echo "Check status:"
-if command -v systemctl >/dev/null 2>&1 && systemctl is-active nodehub-agent >/dev/null 2>&1; then
-  echo "  systemctl status nodehub-agent --no-pager"
-  echo "  systemctl status xray --no-pager"
+if [ "$USE_SYSTEMD" = true ]; then
+  echo "Service Management (systemd):"
+  echo "  systemctl status nodehub-agent"
+  echo "  systemctl status xray"
   echo "  journalctl -u nodehub-agent -f"
 else
-  echo "  ps aux | grep nodehub-agent"
-  echo "  ps aux | grep xray"
+  echo "Service Management (manual):"
+  echo "  ps aux | grep -E 'xray|nodehub-agent'"
   echo "  tail -f /var/log/nodehub-agent.log"
   echo "  tail -f /var/log/xray/xray.log"
+  echo ""
+  echo "  To stop: pkill -f 'xray run' && pkill -f 'nodehub-agent.sh'"
 fi
 echo ""
 `;
