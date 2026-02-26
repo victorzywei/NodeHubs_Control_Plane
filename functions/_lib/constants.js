@@ -210,6 +210,7 @@ export const BUILTIN_PROFILES = [
         description: 'VLESS over WebSocket+TLS，兼容 CDN，最通用的方案',
         node_types: ['vps', 'cf_worker'],
         defaults: {
+            port: 8443,
             path: '/?ed=2560', fingerprint: 'randomized', alpn: ['h2', 'http/1.1'],
         },
     },
@@ -236,6 +237,7 @@ export const BUILTIN_PROFILES = [
         description: 'VLESS+Reality 直连方案，极强抗检测，仅 VPS',
         node_types: ['vps'],
         defaults: {
+            port: 443,
             sni: 'www.microsoft.com', fingerprint: 'chrome',
             flow: 'xtls-rprx-vision',
         },
@@ -264,6 +266,7 @@ export const BUILTIN_PROFILES = [
         description: 'Trojan over WebSocket+TLS，兼容 CDN',
         node_types: ['vps', 'cf_worker'],
         defaults: {
+            port: 9443,
             path: '/trojan-ws', fingerprint: 'chrome',
         },
     },
@@ -291,6 +294,7 @@ export const BUILTIN_PROFILES = [
         description: 'VMess over WebSocket+TLS，兼容性好',
         node_types: ['vps'],
         defaults: {
+            port: 10443,
             path: '/vmess-ws', alter_id: 0, encryption: 'auto',
             fingerprint: 'chrome',
         },
@@ -320,6 +324,7 @@ export const BUILTIN_PROFILES = [
         description: 'Hysteria2 QUIC 协议，高速低延迟',
         node_types: ['vps'],
         defaults: {
+            port: 443,
             up_mbps: 100, down_mbps: 100, fingerprint: 'chrome',
         },
     },
