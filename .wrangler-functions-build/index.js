@@ -868,7 +868,7 @@ fi
 
 install_base_packages() {
   local missing=()
-  for bin in curl jq; do
+  for bin in curl jq unzip; do
     if ! command -v "$bin" >/dev/null 2>&1; then
       missing+=("$bin")
     fi
@@ -924,7 +924,7 @@ install_base_packages() {
     install_jq_binary || true
   fi
 
-  for bin in curl jq; do
+  for bin in curl jq unzip; do
     if ! command -v "$bin" >/dev/null 2>&1; then
       echo "Missing required tools: \${missing[*]}"
       if [[ "$pkg_install_failed" -eq 1 ]]; then
@@ -951,6 +951,71 @@ install_base_packages() {
 }
 
 install_xray() {
+  write_xray_systemd_unit() {
+    mkdir -p /usr/local/etc/xray
+    if [[ ! -f "$XRAY_CONFIG" ]]; then
+      cat > "$XRAY_CONFIG" <<'JSON'
+{"log":{"loglevel":"warning"},"inbounds":[{"tag":"placeholder","listen":"127.0.0.1","port":10085,"protocol":"dokodemo-door","settings":{"address":"127.0.0.1"}}],"outbounds":[{"protocol":"freedom","tag":"direct"}]}
+JSON
+    fi
+
+    if [[ ! -f /etc/systemd/system/xray.service ]]; then
+      cat > /etc/systemd/system/xray.service <<'UNIT'
+[Unit]
+Description=Xray Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    fi
+  }
+
+  install_xray_binary_fallback() {
+    local arch pkg url tmpdir
+    arch="$(uname -m)"
+    case "$arch" in
+      x86_64|amd64) pkg="Xray-linux-64.zip" ;;
+      aarch64|arm64) pkg="Xray-linux-arm64-v8a.zip" ;;
+      armv7l|armv7) pkg="Xray-linux-arm32-v7a.zip" ;;
+      i386|i686) pkg="Xray-linux-32.zip" ;;
+      *)
+        echo "Unsupported architecture for Xray fallback install: $arch"
+        return 1
+        ;;
+    esac
+
+    url="$(build_github_url "https://github.com/XTLS/Xray-core/releases/latest/download/$pkg")"
+    tmpdir="$(mktemp -d)"
+    trap 'rm -rf "$tmpdir"' RETURN
+
+    echo "Fallback: downloading Xray core from $url"
+    if ! curl -fL --retry 3 --retry-delay 2 "$url" -o "$tmpdir/xray.zip"; then
+      return 1
+    fi
+    if ! unzip -oq "$tmpdir/xray.zip" -d "$tmpdir/xray"; then
+      return 1
+    fi
+    if [[ ! -f "$tmpdir/xray/xray" ]]; then
+      return 1
+    fi
+
+    install -m 0755 "$tmpdir/xray/xray" /usr/local/bin/xray
+    mkdir -p /usr/local/share/xray
+    [[ -f "$tmpdir/xray/geoip.dat" ]] && install -m 0644 "$tmpdir/xray/geoip.dat" /usr/local/share/xray/geoip.dat
+    [[ -f "$tmpdir/xray/geosite.dat" ]] && install -m 0644 "$tmpdir/xray/geosite.dat" /usr/local/share/xray/geosite.dat
+
+    write_xray_systemd_unit
+    return 0
+  }
+
   if command -v xray >/dev/null 2>&1; then
     echo "Xray already installed."
     return 0
@@ -961,13 +1026,16 @@ install_xray() {
   xray_install_url="$(build_github_url "https://github.com/XTLS/Xray-install/raw/main/install-release.sh")"
   # Use official installer but suppress systemd errors
   bash -c "$(curl -fsSL "$xray_install_url")" @ install -u root 2>&1 | grep -v "libsystemd-shared" | grep -v "systemctl: error" || true
-  
-  # Verify xray binary exists
+
   if ! command -v xray >/dev/null 2>&1; then
-    echo "Error: Xray installation failed"
-    exit 1
+    echo "Official installer failed, trying binary fallback..."
+    if ! install_xray_binary_fallback; then
+      echo "Error: Xray installation failed"
+      exit 1
+    fi
   fi
-  
+
+  write_xray_systemd_unit
   echo "Xray installed successfully."
 }
 
@@ -1273,10 +1341,14 @@ if [ "$USE_SYSTEMD" = true ]; then
   systemctl enable xray 2>/dev/null || true
   systemctl enable nodehub-agent 2>/dev/null || true
   
-  if systemctl restart xray 2>/dev/null && systemctl restart nodehub-agent 2>/dev/null; then
-    echo "Services started successfully via systemd."
+  if systemctl restart nodehub-agent 2>/dev/null; then
+    if systemctl restart xray 2>/dev/null; then
+      echo "Services started successfully via systemd."
+    else
+      echo "NodeHub agent started via systemd; xray will be restarted after first plan is applied."
+    fi
   else
-    echo "systemd start failed, falling back to manual start..."
+    echo "systemd start failed for nodehub-agent, falling back to manual start..."
     USE_SYSTEMD=false
   fi
 fi
@@ -2343,7 +2415,7 @@ async function onRequest(context) {
 }
 __name(onRequest, "onRequest");
 
-// ../.wrangler/tmp/pages-zT1tsy/functionsRoutes-0.8993167840662001.mjs
+// ../.wrangler/tmp/pages-1qBSww/functionsRoutes-0.017555711405998098.mjs
 var routes = [
   {
     routePath: "/api/nodes/:nid/install",
