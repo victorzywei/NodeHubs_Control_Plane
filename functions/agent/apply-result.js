@@ -23,14 +23,19 @@ export async function onRequestPost(context) {
     if (!node) return err('NODE_NOT_FOUND', 'Node not found', 404);
     if (node.node_token !== nodeToken) return err('INVALID_TOKEN', 'Invalid node token', 401);
 
-    // Idempotency: skip if already recorded
-    const existingRecord = (node.apply_history || []).find(h => h.version === version);
-    if (existingRecord) {
+    if (!node.apply_history) node.apply_history = [];
+    const normalizedMessage = String(message || '');
+    const existingRecord = node.apply_history.find(h => h.version === version);
+    const sameAsExisting = existingRecord
+        && existingRecord.status === status
+        && String(existingRecord.message || '') === normalizedMessage;
+    if (sameAsExisting) {
         return ok({ message: 'Already recorded', version, status: existingRecord.status });
     }
 
     // Record apply result
     node.last_apply_status = status;
+    node.last_apply_message = normalizedMessage;
     node.last_apply_at = new Date().toISOString();
     node.last_seen = new Date().toISOString();
 
@@ -41,15 +46,21 @@ export async function onRequestPost(context) {
         node.consecutive_failures = (node.consecutive_failures || 0) + 1;
     }
 
-    // Append to history
-    if (!node.apply_history) node.apply_history = [];
-    node.apply_history.unshift({
-        version,
-        status,
-        message: message || '',
-        timestamp: new Date().toISOString(),
-    });
-    node.apply_history = node.apply_history.slice(0, MAX_HISTORY);
+    // Write history only on state/message transition for this version
+    const nowIso = new Date().toISOString();
+    if (existingRecord) {
+        existingRecord.status = status;
+        existingRecord.message = normalizedMessage;
+        existingRecord.timestamp = nowIso;
+    } else {
+        node.apply_history.unshift({
+            version,
+            status,
+            message: normalizedMessage,
+            timestamp: nowIso,
+        });
+        node.apply_history = node.apply_history.slice(0, MAX_HISTORY);
+    }
 
     await kvPut(KV, KEY.node(node_id), node);
 

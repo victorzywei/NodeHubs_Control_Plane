@@ -362,10 +362,15 @@ function timeAgo(dateStr) {
                                             {{ h.status === 'success' ? '成功' : '失败' }}
                                         </span>
                                     </div>
+                                    <div v-if="h.message" class="text-[10px] text-text-secondary break-all">{{ h.message }}</div>
                                     <div class="text-[10px] text-text-muted">{{ new Date(h.timestamp).toLocaleString('zh-CN') }}</div>
                                 </div>
                             </div>
                         </div>
+                    </div>
+                    <div v-else-if="detailNode.last_apply_message" class="mb-5">
+                        <div class="text-[10px] text-text-muted mb-1.5">最近状态信息</div>
+                        <div class="text-xs text-text-secondary break-all p-2 rounded-lg bg-white/[0.02]">{{ detailNode.last_apply_message }}</div>
                     </div>
 
                     <div class="flex justify-end pt-4 mt-4 border-t border-border">

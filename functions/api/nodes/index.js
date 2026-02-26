@@ -53,6 +53,7 @@ export async function onRequestPost(context) {
         applied_version: 0,
         last_seen: null,
         last_apply_status: null,
+        last_apply_message: '',
         consecutive_failures: 0,
         apply_history: [],
         created_at: new Date().toISOString(),

@@ -771,11 +771,15 @@ async function onRequestPost2(context) {
   const node = await kvGet(KV, KEY.node(node_id));
   if (!node) return err("NODE_NOT_FOUND", "Node not found", 404);
   if (node.node_token !== nodeToken) return err("INVALID_TOKEN", "Invalid node token", 401);
-  const existingRecord = (node.apply_history || []).find((h) => h.version === version);
-  if (existingRecord) {
+  if (!node.apply_history) node.apply_history = [];
+  const normalizedMessage = String(message || "");
+  const existingRecord = node.apply_history.find((h) => h.version === version);
+  const sameAsExisting = existingRecord && existingRecord.status === status && String(existingRecord.message || "") === normalizedMessage;
+  if (sameAsExisting) {
     return ok({ message: "Already recorded", version, status: existingRecord.status });
   }
   node.last_apply_status = status;
+  node.last_apply_message = normalizedMessage;
   node.last_apply_at = (/* @__PURE__ */ new Date()).toISOString();
   node.last_seen = (/* @__PURE__ */ new Date()).toISOString();
   if (status === "success") {
@@ -784,14 +788,20 @@ async function onRequestPost2(context) {
   } else {
     node.consecutive_failures = (node.consecutive_failures || 0) + 1;
   }
-  if (!node.apply_history) node.apply_history = [];
-  node.apply_history.unshift({
-    version,
-    status,
-    message: message || "",
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  });
-  node.apply_history = node.apply_history.slice(0, MAX_HISTORY);
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  if (existingRecord) {
+    existingRecord.status = status;
+    existingRecord.message = normalizedMessage;
+    existingRecord.timestamp = nowIso;
+  } else {
+    node.apply_history.unshift({
+      version,
+      status,
+      message: normalizedMessage,
+      timestamp: nowIso
+    });
+    node.apply_history = node.apply_history.slice(0, MAX_HISTORY);
+  }
   await kvPut(KV, KEY.node(node_id), node);
   return ok({
     recorded: true,
@@ -1793,6 +1803,7 @@ async function onRequestPost4(context) {
     applied_version: 0,
     last_seen: null,
     last_apply_status: null,
+    last_apply_message: "",
     consecutive_failures: 0,
     apply_history: [],
     created_at: (/* @__PURE__ */ new Date()).toISOString(),
@@ -2415,7 +2426,7 @@ async function onRequest(context) {
 }
 __name(onRequest, "onRequest");
 
-// ../.wrangler/tmp/pages-1qBSww/functionsRoutes-0.017555711405998098.mjs
+// ../.wrangler/tmp/pages-BtrwwX/functionsRoutes-0.4216676390464986.mjs
 var routes = [
   {
     routePath: "/api/nodes/:nid/install",
