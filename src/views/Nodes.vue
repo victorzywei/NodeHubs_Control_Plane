@@ -300,6 +300,10 @@ function timeAgo(dateStr) {
                             <div class="text-xs">{{ detailNode.region || '-' }}</div>
                         </div>
                         <div>
+                            <div class="text-[10px] text-text-muted mb-0.5">GitHub 镜像</div>
+                            <div class="text-xs font-mono break-all">{{ detailNode.github_mirror || '-' }}</div>
+                        </div>
+                        <div>
                             <div class="text-[10px] text-text-muted mb-0.5">创建时间</div>
                             <div class="text-xs">{{ new Date(detailNode.created_at).toLocaleString('zh-CN') }}</div>
                         </div>
