@@ -1317,7 +1317,7 @@ echo ""
 echo "Configuration:"
 echo "  Node ID: $NODE_ID"
 echo "  API Base: $API_BASE"
-echo "  Poll Interval: ${POLL_INTERVAL}s"
+echo "  Poll Interval: \${POLL_INTERVAL}s"
 if [[ -n "$GITHUB_MIRROR" ]]; then
   echo "  GitHub Mirror: $GITHUB_MIRROR"
 fi
@@ -2343,7 +2343,7 @@ async function onRequest(context) {
 }
 __name(onRequest, "onRequest");
 
-// ../.wrangler/tmp/pages-zHHLTr/functionsRoutes-0.3794305800008332.mjs
+// ../.wrangler/tmp/pages-zT1tsy/functionsRoutes-0.8993167840662001.mjs
 var routes = [
   {
     routePath: "/api/nodes/:nid/install",

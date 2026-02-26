@@ -525,7 +525,7 @@ echo ""
 echo "Configuration:"
 echo "  Node ID: $NODE_ID"
 echo "  API Base: $API_BASE"
-echo "  Poll Interval: ${POLL_INTERVAL}s"
+echo "  Poll Interval: \${POLL_INTERVAL}s"
 if [[ -n "$GITHUB_MIRROR" ]]; then
   echo "  GitHub Mirror: $GITHUB_MIRROR"
 fi
