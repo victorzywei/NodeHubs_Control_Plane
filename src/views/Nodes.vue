@@ -9,6 +9,7 @@ const showModal = ref(false)
 const showDetail = ref(false)
 const editId = ref(null)
 const detailNode = ref(null)
+const installCmd = ref('')
 
 const form = ref({ name: '', node_type: 'vps', entry_domain: '', entry_ip: '', region: '', tags: '', rotate_token: false })
 
@@ -48,6 +49,11 @@ async function openEdit(nid) {
 async function openDetail(nid) {
     try {
         detailNode.value = await api.getNode(nid)
+        installCmd.value = ''
+        if (detailNode.value?.node_type === 'vps') {
+            const install = await api.getNodeInstallCmd(nid)
+            installCmd.value = install.command || ''
+        }
         showDetail.value = true
     } catch (e) {
         toast(`加载失败: ${e.message}`, 'error')
@@ -95,6 +101,12 @@ function copyToken() {
         navigator.clipboard.writeText(detailNode.value.node_token)
         toast('Token 已复制', 'success')
     }
+}
+
+function copyInstallCommand() {
+    if (!installCmd.value) return
+    navigator.clipboard.writeText(installCmd.value)
+    toast('Install command copied', 'success')
 }
 
 function timeAgo(dateStr) {
@@ -294,6 +306,21 @@ function timeAgo(dateStr) {
                             <button @click="copyToken" class="text-[10px] px-2.5 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20 transition flex-shrink-0">
                                 复制
                             </button>
+                        </div>
+                    </div>
+
+                    <div v-if="detailNode.node_type === 'vps'" class="mb-5">
+                        <div class="text-[10px] text-text-muted mb-1.5">VPS 一键部署命令</div>
+                        <div class="p-3 rounded-lg bg-bg-input border border-border">
+                            <code class="text-[11px] font-mono text-text-secondary break-all">{{ installCmd || 'Loading...' }}</code>
+                        </div>
+                        <div class="mt-2">
+                            <button @click="copyInstallCommand" :disabled="!installCmd" class="text-[10px] px-2.5 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20 transition disabled:opacity-50">
+                                复制部署命令
+                            </button>
+                        </div>
+                        <div class="text-[10px] text-text-muted mt-1">
+                            在 VPS 上用 root/sudo 执行，会自动安装 Xray 与 NodeHub Agent。
                         </div>
                     </div>
 

@@ -23,6 +23,7 @@ export const api = {
     // Nodes
     getNodes: () => request('GET', '/api/nodes'),
     getNode: (nid) => request('GET', `/api/nodes/${nid}`),
+    getNodeInstallCmd: (nid) => request('GET', `/api/nodes/${nid}/install`),
     createNode: (data) => request('POST', '/api/nodes', data),
     updateNode: (nid, data) => request('PATCH', `/api/nodes/${nid}`, data),
     deleteNode: (nid) => request('DELETE', `/api/nodes/${nid}`),

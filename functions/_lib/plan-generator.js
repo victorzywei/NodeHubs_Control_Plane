@@ -180,6 +180,12 @@ function resolveProfileParams(profile, params, node, nodeType) {
         resolved.port = params.cf_port || 443;
     } else {
         resolved.port = params.listen_port || resolved.port || 443;
+
+        // VPS-only passthrough fields used by server-side apply scripts
+        // (e.g. Xray TLS cert/key and Reality private key)
+        if (params.tls_cert_file) resolved.tls_cert_file = params.tls_cert_file;
+        if (params.tls_key_file) resolved.tls_key_file = params.tls_key_file;
+        if (params.reality_private_key) resolved.reality_private_key = params.reality_private_key;
     }
 
     return resolved;
