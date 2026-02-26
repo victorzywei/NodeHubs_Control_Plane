@@ -10,6 +10,7 @@ NODE_ID=""
 NODE_TOKEN=""
 POLL_INTERVAL=15
 GITHUB_MIRROR=""
+TLS_DOMAIN=""
 XRAY_CONFIG="/usr/local/etc/xray/config.json"
 NODEHUB_DIR="/etc/nodehub"
 STATE_DIR="/var/lib/nodehub"
@@ -17,7 +18,7 @@ STATE_DIR="/var/lib/nodehub"
 usage() {
   cat <<'EOF'
 Usage:
-  bash install.sh --api-base <url> --node-id <id> --node-token <token> [--poll-interval 15] [--github-mirror <url>]
+  bash install.sh --api-base <url> --node-id <id> --node-token <token> [--poll-interval 15] [--github-mirror <url>] [--tls-domain <domain>]
 EOF
 }
 
@@ -43,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --node-token) NODE_TOKEN="$2"; shift 2 ;;
     --poll-interval) POLL_INTERVAL="$2"; shift 2 ;;
     --github-mirror) GITHUB_MIRROR="$2"; shift 2 ;;
+    --tls-domain) TLS_DOMAIN="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1"; usage; exit 1 ;;
   esac
@@ -61,6 +63,11 @@ fi
 if [[ -n "$GITHUB_MIRROR" && ! "$GITHUB_MIRROR" =~ ^https?:// ]]; then
   echo "Warning: invalid --github-mirror value '$GITHUB_MIRROR', fallback to default GitHub URL."
   GITHUB_MIRROR=""
+fi
+
+if [[ -n "$TLS_DOMAIN" && ! "$TLS_DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+  echo "Warning: invalid --tls-domain value '$TLS_DOMAIN', skip automatic TLS certificate setup."
+  TLS_DOMAIN=""
 fi
 
 install_base_packages() {
@@ -234,6 +241,101 @@ UNIT
 
   write_xray_systemd_unit
   echo "Xray installed successfully."
+}
+
+install_tls_certificate() {
+  if [[ -z "$TLS_DOMAIN" ]]; then
+    return 0
+  fi
+
+  echo "Setting up TLS certificate for domain: $TLS_DOMAIN"
+  mkdir -p /etc/ssl/certs /etc/ssl/private
+
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -y 2>/dev/null || true
+    apt-get install -y socat openssl 2>/dev/null || true
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y socat openssl 2>/dev/null || true
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y socat openssl 2>/dev/null || true
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache socat openssl 2>/dev/null || true
+  fi
+
+  if [[ ! -x "$HOME/.acme.sh/acme.sh" ]]; then
+    if ! curl -fsSL https://get.acme.sh | sh -s email=admin@"$TLS_DOMAIN"; then
+      echo "Error: failed to install acme.sh for TLS certificate issue"
+      exit 1
+    fi
+  fi
+
+  # shellcheck disable=SC1091
+  source "$HOME/.acme.sh/acme.sh.env" 2>/dev/null || true
+  ACME_BIN="$HOME/.acme.sh/acme.sh"
+  if [[ ! -x "$ACME_BIN" ]]; then
+    echo "Error: acme.sh is not available"
+    exit 1
+  fi
+
+  "$ACME_BIN" --set-default-ca --server letsencrypt >/dev/null 2>&1 || true
+
+  if ! "$ACME_BIN" --issue -d "$TLS_DOMAIN" --standalone --keylength ec-256; then
+    echo "Error: failed to issue certificate for $TLS_DOMAIN"
+    echo "Make sure DNS A/AAAA of the entry domain points to this VPS and ports 80/443 are reachable."
+    exit 1
+  fi
+
+  if ! "$ACME_BIN" --install-cert -d "$TLS_DOMAIN" --ecc \
+    --fullchain-file /etc/ssl/certs/nodehub.crt \
+    --key-file /etc/ssl/private/nodehub.key \
+    --reloadcmd "systemctl restart xray >/dev/null 2>&1 || true"; then
+    echo "Error: failed to install certificate files"
+    exit 1
+  fi
+
+  chmod 600 /etc/ssl/private/nodehub.key
+  chmod 644 /etc/ssl/certs/nodehub.crt
+
+  setup_tls_renewal() {
+    local renew_cmd
+    renew_cmd="$ACME_BIN --cron --home $HOME/.acme.sh"
+
+    if command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload >/dev/null 2>&1; then
+      cat > /etc/systemd/system/nodehub-acme-renew.service <<UNIT
+[Unit]
+Description=NodeHub ACME Renewal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash -lc '$renew_cmd'
+UNIT
+
+      cat > /etc/systemd/system/nodehub-acme-renew.timer <<'UNIT'
+[Unit]
+Description=Run ACME renewal twice daily
+
+[Timer]
+OnCalendar=*-*-* 03,15:20:00
+RandomizedDelaySec=900
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+      systemctl daemon-reload >/dev/null 2>&1 || true
+      systemctl enable --now nodehub-acme-renew.timer >/dev/null 2>&1 || true
+    else
+      local cron_line
+      cron_line="20 3,15 * * * $renew_cmd >/dev/null 2>&1"
+      (crontab -l 2>/dev/null | grep -Fv "$renew_cmd"; echo "$cron_line") | crontab - 2>/dev/null || true
+    fi
+  }
+
+  setup_tls_renewal
+  echo "TLS certificate is ready: /etc/ssl/certs/nodehub.crt"
 }
 
 write_converter() {
@@ -530,6 +632,7 @@ EOF
 
 install_base_packages
 install_xray
+install_tls_certificate
 write_converter
 write_agent_script
 write_systemd_unit
@@ -600,6 +703,12 @@ echo "  API Base: $API_BASE"
 echo "  Poll Interval: \${POLL_INTERVAL}s"
 if [[ -n "$GITHUB_MIRROR" ]]; then
   echo "  GitHub Mirror: $GITHUB_MIRROR"
+fi
+if [[ -n "$TLS_DOMAIN" ]]; then
+  echo "  TLS Domain: $TLS_DOMAIN"
+  echo "  TLS Cert: /etc/ssl/certs/nodehub.crt"
+  echo "  TLS Key : /etc/ssl/private/nodehub.key"
+  echo "  TLS Renewal: enabled (acme.sh + timer/cron)"
 fi
 echo ""
 if [ "$USE_SYSTEMD" = true ]; then
