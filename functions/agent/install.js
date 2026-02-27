@@ -488,6 +488,14 @@ install_tls_certificate() {
   if [[ -n "$TLS_DOMAIN_ALT" ]]; then
     domain_args+=("-d" "$TLS_DOMAIN_ALT")
   fi
+  local issue_log
+  issue_log="$(mktemp /tmp/nodehub-acme-issue.XXXXXX)"
+  allow_issue_skip() {
+    if grep -q "Skipping. Next renewal time is" "$issue_log" 2>/dev/null; then
+      return 0
+    fi
+    return 1
+  }
 
   if [[ -n "$CF_API_TOKEN" ]]; then
     echo "Issuing certificate via Cloudflare DNS API..."
@@ -495,19 +503,36 @@ install_tls_certificate() {
     if [[ -n "$CF_ZONE_ID" ]]; then
       export CF_Zone_ID="$CF_ZONE_ID"
     fi
-    if ! "$ACME_BIN" --issue "\${domain_args[@]}" --dns dns_cf --keylength ec-256; then
-      echo "Error: failed to issue certificate via Cloudflare DNS for $TLS_DOMAIN"
-      echo "Check CF token permissions (Zone.DNS Edit + Zone.Zone Read) and zone scope."
-      exit 1
+    if ! "$ACME_BIN" --issue "\${domain_args[@]}" --dns dns_cf --keylength ec-256 >"$issue_log" 2>&1; then
+      cat "$issue_log" || true
+      if allow_issue_skip; then
+        echo "acme.sh reports cert is still valid, continue with existing cert."
+      else
+        rm -f "$issue_log"
+        echo "Error: failed to issue certificate via Cloudflare DNS for $TLS_DOMAIN"
+        echo "Check CF token permissions (Zone.DNS Edit + Zone.Zone Read) and zone scope."
+        exit 1
+      fi
+    else
+      cat "$issue_log" || true
     fi
   else
     echo "Issuing certificate via standalone HTTP challenge..."
-    if ! "$ACME_BIN" --issue "\${domain_args[@]}" --standalone --keylength ec-256; then
-      echo "Error: failed to issue certificate for $TLS_DOMAIN"
-      echo "Either provide --cf-api-token for DNS mode, or make sure ports 80/443 are reachable and not occupied."
-      exit 1
+    if ! "$ACME_BIN" --issue "\${domain_args[@]}" --standalone --keylength ec-256 >"$issue_log" 2>&1; then
+      cat "$issue_log" || true
+      if allow_issue_skip; then
+        echo "acme.sh reports cert is still valid, continue with existing cert."
+      else
+        rm -f "$issue_log"
+        echo "Error: failed to issue certificate for $TLS_DOMAIN"
+        echo "Either provide --cf-api-token for DNS mode, or make sure ports 80/443 are reachable and not occupied."
+        exit 1
+      fi
+    else
+      cat "$issue_log" || true
     fi
   fi
+  rm -f "$issue_log"
 
   if ! "$ACME_BIN" --install-cert -d "$TLS_DOMAIN" --ecc \
     --fullchain-file /etc/ssl/certs/nodehub.crt \
