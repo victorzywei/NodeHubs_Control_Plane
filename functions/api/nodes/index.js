@@ -15,12 +15,13 @@ function normalizeNodeDomains(node) {
     const cdn = typeof node.entry_domain_cdn === 'string' ? node.entry_domain_cdn : (node.entry_domain || '');
     const directRaw = typeof node.entry_domain_direct === 'string' ? node.entry_domain_direct : '';
     const direct = directRaw || cdn;
+    const desiredVersion = Number(node.desired_version || 0);
     return {
         ...node,
         entry_domain_cdn: cdn,
         entry_domain_direct: direct,
-        // Keep legacy field for backward compatibility with old clients.
         entry_domain: cdn,
+        desired_version: desiredVersion,
     };
 }
 
@@ -63,7 +64,7 @@ export async function onRequestPost(context) {
         cf_zone_id: typeof body.cf_zone_id === 'string' ? body.cf_zone_id.trim() : '',
         node_token: generateToken(),
         capabilities: DEFAULT_CAPABILITIES[body.node_type] || DEFAULT_CAPABILITIES.vps,
-        target_version: 0,
+        desired_version: 0,
         applied_version: 0,
         last_seen: null,
         last_apply_status: null,

@@ -176,6 +176,17 @@ function openNodeDiagnosisByIp(ip) {
   if (!host) return
   window.open(`http://${host}:49480/${encodeURIComponent(detailNode.value.id)}`, '_blank', 'noopener,noreferrer')
 }
+
+function getDesiredVersion(node) {
+  return Number(node?.desired_version || 0)
+}
+
+function getAppliedConfigNames(history) {
+  if (!history) return []
+  if (Array.isArray(history.config_names) && history.config_names.length) return history.config_names
+  if (Array.isArray(history.protocols) && history.protocols.length) return history.protocols
+  return []
+}
 </script>
 
 <template>
@@ -222,7 +233,7 @@ function openNodeDiagnosisByIp(ip) {
             </td>
             <td class="font-mono text-xs text-text-secondary">{{ n.entry_domain_cdn || n.entry_domain_direct || n.entry_domain || n.entry_ip || '-' }}</td>
             <td>
-              <span v-if="n.target_version > 0" class="text-xs font-mono text-text-secondary">v{{ n.applied_version || 0 }}/v{{ n.target_version }}</span>
+              <span v-if="getDesiredVersion(n) > 0" class="text-xs font-mono text-text-secondary">v{{ n.applied_version || 0 }}/v{{ getDesiredVersion(n) }}</span>
               <span v-else class="text-xs text-text-muted">未部署</span>
             </td>
             <td class="text-sm">{{ n.region || '-' }}</td>
@@ -413,8 +424,8 @@ function openNodeDiagnosisByIp(ip) {
                       {{ h.status === 'success' ? '成功' : '失败' }}
                     </span>
                   </div>
-                  <div v-if="Array.isArray(h.protocols) && h.protocols.length" class="mt-1 flex flex-wrap gap-1">
-                    <span v-for="p in h.protocols" :key="`${h.version}-${p}`" class="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-text-secondary">{{ p }}</span>
+                  <div v-if="getAppliedConfigNames(h).length" class="mt-1 flex flex-wrap gap-1">
+                    <span v-for="p in getAppliedConfigNames(h)" :key="`${h.version}-${p}`" class="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-text-secondary">{{ p }}</span>
                   </div>
                   <div v-if="h.message" class="text-[10px] text-text-secondary break-all">{{ h.message }}</div>
                   <div class="text-[10px] text-text-muted">{{ new Date(h.timestamp).toLocaleString('zh-CN') }}</div>

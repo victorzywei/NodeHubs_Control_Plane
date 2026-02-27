@@ -846,18 +846,18 @@ while true; do
   fi
 
   needs_update=$(echo "$version_resp" | jq -r '.data.needs_update')
-  target_version=$(echo "$version_resp" | jq -r '.data.target_version')
+  desired_version=$(echo "$version_resp" | jq -r '.data.desired_version')
 
   if [[ "$needs_update" == "true" ]]; then
-    log "update required: $current_version -> $target_version"
+    log "update required: $current_version -> $desired_version"
     plan_resp=$(curl --connect-timeout 5 --max-time 20 -fsS \
       -H "X-Node-Token: $NODE_TOKEN" \
-      "$API_BASE/agent/plan?node_id=$NODE_ID&version=$target_version" 2>/tmp/nodehub-plan.err || true)
+      "$API_BASE/agent/plan?node_id=$NODE_ID&version=$desired_version" 2>/tmp/nodehub-plan.err || true)
 
     if [[ -z "$plan_resp" ]]; then
       msg="download plan failed: $(cat /tmp/nodehub-plan.err 2>/dev/null)"
       log "$msg"
-      report_apply_result "$target_version" "failed" "$msg"
+      report_apply_result "$desired_version" "failed" "$msg"
       sleep "$POLL_INTERVAL"
       continue
     fi
@@ -865,7 +865,7 @@ while true; do
     if ! echo "$plan_resp" | jq -e '.success == true' >/dev/null 2>&1; then
       msg="invalid plan response"
       log "$msg"
-      report_apply_result "$target_version" "failed" "$msg"
+      report_apply_result "$desired_version" "failed" "$msg"
       sleep "$POLL_INTERVAL"
       continue
     fi
@@ -874,7 +874,7 @@ while true; do
     if ! echo "$plan_resp" | /usr/local/bin/nodehub-plan-to-xray > "$tmp_cfg" 2>/tmp/nodehub-apply.err; then
       msg=$(tr '\\n' ' ' < /tmp/nodehub-apply.err | cut -c1-500)
       log "plan convert failed: $msg"
-      report_apply_result "$target_version" "failed" "plan convert failed: $msg"
+      report_apply_result "$desired_version" "failed" "plan convert failed: $msg"
       rm -f "$tmp_cfg"
       sleep "$POLL_INTERVAL"
       continue
@@ -884,7 +884,7 @@ while true; do
       test_err=$(tr '\\n' ' ' < /tmp/nodehub-xray-test.err | cut -c1-500)
       msg="xray config test failed\${test_err:+: $test_err}"
       log "$msg"
-      report_apply_result "$target_version" "failed" "$msg"
+      report_apply_result "$desired_version" "failed" "$msg"
       rm -f "$tmp_cfg"
       sleep "$POLL_INTERVAL"
       continue
@@ -893,7 +893,7 @@ while true; do
     if ! install -m 600 "$tmp_cfg" "$XRAY_CONFIG" 2>/tmp/nodehub-install.err; then
       msg=$(tr '\\n' ' ' < /tmp/nodehub-install.err | cut -c1-500)
       log "xray config install failed: $msg"
-      report_apply_result "$target_version" "failed" "xray config install failed: $msg"
+      report_apply_result "$desired_version" "failed" "xray config install failed: $msg"
       rm -f "$tmp_cfg"
       sleep "$POLL_INTERVAL"
       continue
@@ -904,7 +904,7 @@ while true; do
       test_err=$(tr '\\n' ' ' < /tmp/nodehub-xray-test.err | cut -c1-500)
       msg="xray config test failed\${test_err:+: $test_err}"
       log "$msg"
-      report_apply_result "$target_version" "failed" "$msg"
+      report_apply_result "$desired_version" "failed" "$msg"
       sleep "$POLL_INTERVAL"
       continue
     fi
@@ -912,14 +912,14 @@ while true; do
     if ! restart_xray >/tmp/nodehub-restart.err 2>&1; then
       msg=$(tr '\\n' ' ' < /tmp/nodehub-restart.err | cut -c1-500)
       log "xray restart failed: $msg"
-      report_apply_result "$target_version" "failed" "xray restart failed: $msg"
+      report_apply_result "$desired_version" "failed" "xray restart failed: $msg"
       sleep "$POLL_INTERVAL"
       continue
     fi
 
-    echo "$target_version" > "$STATE_FILE"
-    report_apply_result "$target_version" "success" "applied"
-    log "applied version $target_version"
+    echo "$desired_version" > "$STATE_FILE"
+    report_apply_result "$desired_version" "success" "applied"
+    log "applied version $desired_version"
   fi
 
   sleep "$POLL_INTERVAL"

@@ -3,7 +3,7 @@
 
 import {
     PROTOCOL_REGISTRY, TRANSPORT_REGISTRY, TLS_REGISTRY,
-    NODE_ADAPTERS, CF_PORTS_HTTP, isProfileCompatibleWithNode, getProfileSchema,
+    CF_PORTS_HTTP, isProfileCompatibleWithNode, getProfileSchema,
 } from './constants.js';
 
 /** Strip protocol prefix and trailing slashes from domain strings */
@@ -36,27 +36,7 @@ export function generatePlan(node, profiles, params, version) {
  * Uses the new registry-based compatibility checking
  */
 export function isProfileCompatible(profile, node) {
-    // First check the new registry-based way
-    if (isProfileCompatibleWithNode(profile, node.node_type)) return true;
-
-    // Fallback: legacy capability check
-    const caps = node.capabilities || {};
-    const adapter = NODE_ADAPTERS[node.node_type];
-    if (!adapter) return false;
-
-    // Check protocol
-    const supportedProtocols = caps.protocols || adapter.supported_protocols;
-    if (!supportedProtocols.includes(profile.protocol)) return false;
-
-    // Check transport
-    const supportedTransports = caps.transports || adapter.supported_transports;
-    if (!supportedTransports.includes(profile.transport)) return false;
-
-    // Check TLS
-    const supportedTls = caps.tls_modes || adapter.supported_tls;
-    if (!supportedTls.includes(profile.tls_mode)) return false;
-
-    return true;
+    return isProfileCompatibleWithNode(profile, node.node_type);
 }
 
 /**
@@ -66,6 +46,8 @@ function generateVpsPlan(node, profiles, params, version) {
     const inbounds = profiles.map(profile => {
         return {
             tag: `inbound-${profile.id}`,
+            profile_id: profile.id,
+            profile_name: profile.name || profile.id,
             protocol: profile.protocol,
             transport: profile.transport,
             tls_mode: profile.tls_mode,
@@ -96,6 +78,7 @@ function generateVpsPlan(node, profiles, params, version) {
         meta: {
             profile_count: profiles.length,
             profile_ids: profiles.map(p => p.id),
+            profile_names: profiles.map(p => p.name || p.id),
         },
     };
 }
@@ -112,14 +95,18 @@ function generateWorkerPlan(node, profiles, params, version) {
 
         return {
             profile_id: profile.id,
+            profile_name: profile.name || profile.id,
             protocol: profile.protocol,
             transport: profile.transport,
-            tls_mode: isHttp ? 'none' : profile.tls_mode,
+            tls_mode: profile.tls_mode,
             settings,
         };
     });
     const effectivePort = params.cf_port ?? configs[0]?.settings?.port;
     const isHttp = CF_PORTS_HTTP.includes(Number(effectivePort));
+    if (isHttp) {
+        for (const config of configs) config.tls_mode = 'none';
+    }
 
     return {
         version,
@@ -139,6 +126,7 @@ function generateWorkerPlan(node, profiles, params, version) {
         meta: {
             profile_count: profiles.length,
             profile_ids: profiles.map(p => p.id),
+            profile_names: profiles.map(p => p.name || p.id),
         },
     };
 }

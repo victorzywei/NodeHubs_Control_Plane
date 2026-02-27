@@ -98,7 +98,8 @@ async function doDeploy() {
       params,
     })
     const ok = result.results?.filter(r => r.status === 'deployed').length || 0
-    toast(`发布成功！版本 v${result.version}，${ok} 个节点已部署`, 'success')
+    const label = getDeployVersionLabel(result)
+    toast(`发布完成：${label}，成功 ${ok} 个节点`, 'success')
     deploys.value = await api.getDeploys().catch(() => [])
   } catch (e) {
     toast(`发布失败: ${e.message}`, 'error')
@@ -119,14 +120,34 @@ function normalizeConfigName(entry) {
 }
 
 function getDeployConfigNames(deploy) {
-  if (Array.isArray(deploy?.profile_snapshot) && deploy.profile_snapshot.length) {
-    const names = deploy.profile_snapshot.map(p => normalizeConfigName(p?.name)).filter(Boolean)
-    if (names.length) return names
-  }
-  if (Array.isArray(deploy?.protocol_configs) && deploy.protocol_configs.length) {
-    return deploy.protocol_configs.map(normalizeConfigName).filter(Boolean)
+  if (Array.isArray(deploy?.config_names) && deploy.config_names.length) {
+    return deploy.config_names.map(normalizeConfigName).filter(Boolean)
   }
   return (deploy?.profile_ids || []).map(normalizeConfigName).filter(Boolean)
+}
+
+function getDeployVersionLabel(deploy) {
+  const ver = Number(deploy?.version || 0)
+  if (ver > 0) return `v${ver}`
+  const min = Number(deploy?.version_min || 0)
+  const max = Number(deploy?.version_max || 0)
+  if (min > 0 && max > 0) return min === max ? `v${min}` : `v${min}~v${max}`
+  if (Array.isArray(deploy?.node_versions) && deploy.node_versions.length) {
+    const versions = deploy.node_versions.map(x => Number(x.version || 0)).filter(v => v > 0)
+    if (!versions.length) return '-'
+    const vMin = Math.min(...versions)
+    const vMax = Math.max(...versions)
+    return vMin === vMax ? `v${vMin}` : `v${vMin}~v${vMax}`
+  }
+  return '-'
+}
+
+function getDeployAgentNames(deploy) {
+  if (Array.isArray(deploy?.node_versions) && deploy.node_versions.length) {
+    const names = deploy.node_versions.map(x => normalizeConfigName(x.node_name || x.node_id)).filter(Boolean)
+    if (names.length) return names
+  }
+  return (deploy?.node_ids || []).map(normalizeConfigName).filter(Boolean)
 }
 </script>
 
@@ -228,6 +249,7 @@ function getDeployConfigNames(deploy) {
         <thead>
           <tr>
             <th>版本</th>
+            <th>代理端</th>
             <th>时间</th>
             <th>节点数</th>
             <th>配置</th>
@@ -237,7 +259,11 @@ function getDeployConfigNames(deploy) {
         <tbody>
           <tr v-for="d in deploys" :key="d.id">
             <td>
-              <span class="text-xs font-mono px-2 py-1 rounded bg-white/5 text-text-secondary">v{{ d.version }}</span>
+              <span class="text-xs font-mono px-2 py-1 rounded bg-white/5 text-text-secondary">{{ getDeployVersionLabel(d) }}</span>
+            </td>
+            <td class="text-xs text-text-secondary">
+              {{ getDeployAgentNames(d).slice(0, 3).join(', ') || '-' }}
+              <span v-if="getDeployAgentNames(d).length > 3"> +{{ getDeployAgentNames(d).length - 3 }}</span>
             </td>
             <td class="text-xs text-text-muted">{{ new Date(d.created_at).toLocaleString('zh-CN') }}</td>
             <td class="text-xs">{{ d.results?.length || 0 }} 节点</td>

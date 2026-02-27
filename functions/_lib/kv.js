@@ -11,7 +11,6 @@ export const KEY = {
     idxProfiles: () => 'idx:profiles',
     idxDeploys: () => 'idx:deploys',
     idxSubs: () => 'idx:subs',
-    versionCounter: () => 'sys:version_counter',
 };
 
 function checkKV(kv) {
@@ -62,14 +61,6 @@ export async function idxAdd(kv, key, entry) {
 export async function idxRemove(kv, key, id) {
     const list = await idxList(kv, key);
     await kvPut(kv, key, list.filter(e => e.id !== id));
-}
-
-// Version counter
-export async function nextVersion(kv) {
-    const current = (await kvGet(kv, KEY.versionCounter())) || 0;
-    const next = current + 1;
-    await kvPut(kv, KEY.versionCounter(), next);
-    return next;
 }
 
 // ID generators

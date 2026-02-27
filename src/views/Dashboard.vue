@@ -36,6 +36,18 @@ function timeAgo(dateStr) {
     return `${Math.floor(h / 24)}天前`
 }
 
+function desiredVersion(node) {
+    return Number(node?.desired_version || 0)
+}
+
+function deployVersionLabel(deploy) {
+    if (Number(deploy?.version || 0) > 0) return `v${deploy.version}`
+    const min = Number(deploy?.version_min || 0)
+    const max = Number(deploy?.version_max || 0)
+    if (min > 0 && max > 0) return min === max ? `v${min}` : `v${min}~v${max}`
+    return '-'
+}
+
 const statCards = [
     { key: 'nodes', label: '总节点数', icon: '🖥️', color: 'text-accent' },
     { key: 'online', label: '在线节点', icon: '⚡', color: 'text-success' },
@@ -84,7 +96,7 @@ const statCards = [
                             </span>
                         </div>
                         <span class="text-xs text-text-muted font-mono">
-                            v{{ n.applied_version || 0 }} → v{{ n.target_version || 0 }}
+                            v{{ n.applied_version || 0 }} → v{{ desiredVersion(n) }}
                         </span>
                     </div>
                 </div>
@@ -100,7 +112,7 @@ const statCards = [
                 <div v-else class="space-y-3">
                     <div v-for="d in deploys" :key="d.id" class="flex items-center justify-between">
                         <div class="flex items-center gap-3">
-                            <span class="text-xs font-mono px-2 py-1 rounded bg-white/5 text-text-secondary">v{{ d.version }}</span>
+                            <span class="text-xs font-mono px-2 py-1 rounded bg-white/5 text-text-secondary">{{ deployVersionLabel(d) }}</span>
                             <span class="text-xs text-text-muted">{{ new Date(d.created_at).toLocaleString('zh-CN') }}</span>
                         </div>
                         <span class="text-xs text-text-secondary">

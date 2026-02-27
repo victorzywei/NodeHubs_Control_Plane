@@ -18,6 +18,21 @@ function extractAppliedProtocols(plan) {
     return [...new Set(protocols)];
 }
 
+function extractAppliedConfigNames(plan) {
+    if (!plan || typeof plan !== 'object') return [];
+    const entries = plan.inbounds || (plan.runtime_config && plan.runtime_config.configs) || [];
+    const names = [];
+    for (const entry of entries) {
+        const raw = typeof entry?.profile_name === 'string' ? entry.profile_name : '';
+        const name = raw.trim();
+        if (name) names.push(name);
+    }
+    if (names.length > 0) return [...new Set(names)];
+
+    const metaNames = Array.isArray(plan?.meta?.profile_names) ? plan.meta.profile_names : [];
+    return [...new Set(metaNames.map((x) => String(x || '').trim()).filter(Boolean))];
+}
+
 export async function onRequestPost(context) {
     const { request, env } = context;
 
@@ -40,6 +55,7 @@ export async function onRequestPost(context) {
     if (node.node_token !== nodeToken) return err('INVALID_TOKEN', 'Invalid node token', 401);
     const plan = await kvGet(KV, KEY.plan(node_id, versionNum));
     const appliedProtocols = extractAppliedProtocols(plan);
+    const appliedConfigNames = extractAppliedConfigNames(plan);
     const latestNode = await kvGet(KV, KEY.node(node_id));
     if (!latestNode || latestNode.node_token !== nodeToken) {
         return err('NODE_NOT_FOUND', 'Node not found', 404);
@@ -50,10 +66,12 @@ export async function onRequestPost(context) {
     const normalizedMessage = String(message || '');
     const existingRecord = writeNode.apply_history.find(h => h.version === versionNum);
     const existingProtocols = Array.isArray(existingRecord?.protocols) ? existingRecord.protocols : [];
+    const existingConfigNames = Array.isArray(existingRecord?.config_names) ? existingRecord.config_names : [];
     const sameAsExisting = existingRecord
         && existingRecord.status === status
         && String(existingRecord.message || '') === normalizedMessage
-        && JSON.stringify(existingProtocols) === JSON.stringify(appliedProtocols);
+        && JSON.stringify(existingProtocols) === JSON.stringify(appliedProtocols)
+        && JSON.stringify(existingConfigNames) === JSON.stringify(appliedConfigNames);
     if (sameAsExisting) {
         return ok({ message: 'Already recorded', version: versionNum, status: existingRecord.status });
     }
@@ -77,6 +95,7 @@ export async function onRequestPost(context) {
         existingRecord.status = status;
         existingRecord.message = normalizedMessage;
         existingRecord.protocols = appliedProtocols;
+        existingRecord.config_names = appliedConfigNames;
         existingRecord.timestamp = nowIso;
     } else {
         writeNode.apply_history.unshift({
@@ -84,6 +103,7 @@ export async function onRequestPost(context) {
             status,
             message: normalizedMessage,
             protocols: appliedProtocols,
+            config_names: appliedConfigNames,
             timestamp: nowIso,
         });
         writeNode.apply_history = writeNode.apply_history.slice(0, MAX_HISTORY);

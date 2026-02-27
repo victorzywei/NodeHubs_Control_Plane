@@ -1,5 +1,5 @@
-// Subscription renderer �?generates v2ray, Clash, sing-box configs
-// 全协议支持的订阅渲染�?
+﻿// Subscription renderer 鈥?generates v2ray, Clash, sing-box configs
+// 鍏ㄥ崗璁敮鎸佺殑璁㈤槄娓叉煋鍣?
 
 import { kvGet, KEY } from './kv.js';
 import { CF_PORTS_HTTP } from './constants.js';
@@ -46,8 +46,9 @@ export async function renderSubscription(kv, sub, format = 'v2ray') {
     const nodes = await loadVisibleNodes(kv, sub);
     const plans = await Promise.all(
         nodes.map(async (node) => {
-            if (!node.target_version) return { node, plan: null };
-            const plan = await kvGet(kv, KEY.plan(node.id, node.target_version));
+            const desiredVersion = Number(node.desired_version || 0);
+            if (!desiredVersion) return { node, plan: null };
+            const plan = await kvGet(kv, KEY.plan(node.id, desiredVersion));
             return { node, plan };
         })
     );
@@ -91,7 +92,7 @@ export async function renderSubscription(kv, sub, format = 'v2ray') {
     }
 }
 
-// ─── V2Ray / V2RayN 格式 ───
+// 鈹€鈹€鈹€ V2Ray / V2RayN 鏍煎紡 鈹€鈹€鈹€
 function renderV2ray(outbounds) {
     const links = outbounds.map(ob => {
         const s = ob.settings;
@@ -192,7 +193,7 @@ function renderV2ray(outbounds) {
     return btoa(links.join('\n'));
 }
 
-// ─── Clash / Clash Meta 格式 ───
+// 鈹€鈹€鈹€ Clash / Clash Meta 鏍煎紡 鈹€鈹€鈹€
 function renderClash(outbounds) {
     const proxies = outbounds.map(ob => {
         const s = ob.settings;
@@ -273,7 +274,7 @@ function renderClash(outbounds) {
     return simpleYaml(config);
 }
 
-// ─── sing-box 格式 ───
+// 鈹€鈹€鈹€ sing-box 鏍煎紡 鈹€鈹€鈹€
 function renderSingbox(outbounds) {
     const obs = outbounds.map(ob => {
         const s = ob.settings;
@@ -368,7 +369,7 @@ function renderSingbox(outbounds) {
     }, null, 2);
 }
 
-// ─── Helper: apply transport config for sing-box ───
+// 鈹€鈹€鈹€ Helper: apply transport config for sing-box 鈹€鈹€鈹€
 function applyTransportSingbox(base, ob, s) {
     if (ob.transport === 'ws') {
         base.transport = {
@@ -387,7 +388,7 @@ function applyTransportSingbox(base, ob, s) {
     }
 }
 
-// ─── YAML serializer ───
+// 鈹€鈹€鈹€ YAML serializer 鈹€鈹€鈹€
 function simpleYaml(obj, indent = 0) {
     let result = '';
     const pad = '  '.repeat(indent);
@@ -415,3 +416,4 @@ function simpleYaml(obj, indent = 0) {
     }
     return result;
 }
+

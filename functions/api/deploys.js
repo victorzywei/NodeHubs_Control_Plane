@@ -11,6 +11,6 @@ export async function onRequestGet(context) {
 
     const KV = env.NODEHUB_KV;
     const deploys = await idxHydrate(KV, KEY.idxDeploys(), KEY.deploy);
-    deploys.sort((a, b) => (b.version || 0) - (a.version || 0));
+    deploys.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     return ok(deploys.slice(0, 20));
 }

@@ -34,7 +34,7 @@ export async function onRequestGet(context) {
 
     if (gap >= HEARTBEAT_WRITE_INTERVAL_MS) {
         // Re-read latest node before writing heartbeat to avoid clobbering
-        // concurrent deploy updates (e.g. target_version).
+        // concurrent deploy updates.
         const latest = await kvGet(KV, KEY.node(nodeId));
         if (!latest || latest.node_token !== nodeToken) {
             return err('NODE_NOT_FOUND', 'Node not found', 404);
@@ -45,13 +45,13 @@ export async function onRequestGet(context) {
         node = latest;
     }
 
-    const targetVersion = Number(node.target_version) || 0;
-    const needsUpdate = targetVersion > currentVersion;
+    const desiredVersion = Number(node.desired_version || 0) || 0;
+    const needsUpdate = desiredVersion > currentVersion;
 
     return ok({
         node_id: nodeId,
         current_version: currentVersion,
-        target_version: targetVersion,
+        desired_version: desiredVersion,
         needs_update: needsUpdate,
     });
 }

@@ -12,11 +12,13 @@ function normalizeNodeDomains(node) {
     const cdn = typeof node.entry_domain_cdn === 'string' ? node.entry_domain_cdn : (node.entry_domain || '');
     const directRaw = typeof node.entry_domain_direct === 'string' ? node.entry_domain_direct : '';
     const direct = directRaw || cdn;
+    const desiredVersion = Number(node.desired_version || 0);
     return {
         ...node,
         entry_domain_cdn: cdn,
         entry_domain_direct: direct,
         entry_domain: cdn,
+        desired_version: desiredVersion,
     };
 }
 

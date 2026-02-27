@@ -12,7 +12,7 @@ function asNodeDiagnosis(node) {
     const lastSeenTs = node.last_seen ? new Date(node.last_seen).getTime() : 0;
     const isOnline = lastSeenTs > 0 && (now - lastSeenTs) < ONLINE_THRESHOLD_MS;
     const lagSeconds = lastSeenTs > 0 ? Math.max(0, Math.floor((now - lastSeenTs) / 1000)) : null;
-    const targetVersion = Number(node.target_version || 0);
+    const desiredVersion = Number(node.desired_version || 0);
     const appliedVersion = Number(node.applied_version || 0);
 
     const history = Array.isArray(node.apply_history) ? node.apply_history : [];
@@ -22,6 +22,7 @@ function asNodeDiagnosis(node) {
         status: h.status || 'failed',
         message: String(h.message || ''),
         protocols: Array.isArray(h.protocols) ? h.protocols : [],
+        config_names: Array.isArray(h.config_names) ? h.config_names : [],
     }));
 
     return {
@@ -35,9 +36,9 @@ function asNodeDiagnosis(node) {
             online_threshold_ms: ONLINE_THRESHOLD_MS,
         },
         template_sync: {
-            target_version: targetVersion,
+            desired_version: desiredVersion,
             applied_version: appliedVersion,
-            is_in_sync: targetVersion === appliedVersion,
+            is_in_sync: desiredVersion === appliedVersion,
             last_apply_status: node.last_apply_status || null,
             last_apply_message: String(node.last_apply_message || ''),
             last_apply_at: node.last_apply_at || null,
@@ -53,6 +54,7 @@ function asNodeDiagnosis(node) {
             status: h?.status || '',
             message: String(h?.message || ''),
             protocols: Array.isArray(h?.protocols) ? h.protocols : [],
+            config_names: Array.isArray(h?.config_names) ? h.config_names : [],
         })),
     };
 }
@@ -125,4 +127,3 @@ export async function onRequestGet(context) {
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
     });
 }
-

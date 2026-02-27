@@ -1,7 +1,7 @@
 // POST /api/deploy → Deploy profiles to nodes
 
 import { verifyAdmin } from '../_lib/auth.js';
-import { kvGet, kvPut, idxAdd, nextVersion, generateId, KEY } from '../_lib/kv.js';
+import { kvGet, kvPut, idxAdd, generateId, KEY } from '../_lib/kv.js';
 import { ok, err } from '../_lib/response.js';
 import { generatePlan, isProfileCompatible } from '../_lib/plan-generator.js';
 import { BUILTIN_PROFILES, PLAN_RETENTION_COUNT } from '../_lib/constants.js';
@@ -79,9 +79,9 @@ export async function onRequestPost(context) {
         return err('VALIDATION', 'No valid profiles found', 400);
     }
 
-    const ver = await nextVersion(KV);
     const did = generateId('d');
     const results = [];
+    const nodeVersions = [];
     for (const nid of node_ids) {
         const node = await kvGet(KV, KEY.node(nid));
         if (!node) {
@@ -106,10 +106,18 @@ export async function onRequestPost(context) {
                 }
             }
 
+            const desiredVersion = Number(node.desired_version || 0);
+            const appliedVersion = Number(node.applied_version ?? 0);
+            const baseVersion = Math.max(desiredVersion, appliedVersion, 0);
+            let ver = baseVersion + 1;
+            while (await kvGet(KV, KEY.plan(nid, ver))) ver += 1;
+
             const plan = generatePlan(node, profiles, nodeParams, ver);
             await kvPut(KV, KEY.plan(nid, ver), plan);
 
-            node.target_version = ver;
+            node.desired_version = ver;
+            node.last_apply_status = 'pending';
+            node.last_apply_message = `release queued: v${ver}`;
             node.updated_at = new Date().toISOString();
             await kvPut(KV, KEY.node(nid), node);
 
@@ -118,37 +126,53 @@ export async function onRequestPost(context) {
                 try { await KV.delete(KEY.plan(nid, oldVer)); } catch { }
             }
 
-            results.push({ node_id: nid, status: 'deployed' });
+            results.push({ node_id: nid, node_name: node.name || nid, status: 'deployed', version: ver });
+            nodeVersions.push({ node_id: nid, node_name: node.name || nid, version: ver });
         } catch (e) {
             results.push({ node_id: nid, status: 'error', reason: e.message });
+            nodeVersions.push({ node_id: nid, version: 0, status: 'error', reason: e.message });
         }
     }
 
     // Phase 3: Write deploy record
-    const profile_snapshot = profiles.map((p) => ({
-        id: p.id,
-        name: p.name || '',
-        protocol: p.protocol || '',
-        transport: p.transport || '',
-        tls_mode: p.tls_mode || '',
-    }));
-    const protocol_configs = profile_snapshot
-        .map((p) => [p.protocol, p.transport, p.tls_mode].filter(Boolean).join('+'))
-        .filter(Boolean);
+    const config_names = profiles
+        .map((p) => p.name || p.id)
+        .filter((name) => typeof name === 'string' && name.trim() !== '');
+
+    const successfulVersions = nodeVersions
+        .map((x) => Number(x.version || 0))
+        .filter((v) => v > 0);
+    const maxVersion = successfulVersions.length ? Math.max(...successfulVersions) : 0;
+    const minVersion = successfulVersions.length ? Math.min(...successfulVersions) : 0;
 
     const deploy = {
         id: did,
-        version: ver,
+        version: successfulVersions.length === 1 ? successfulVersions[0] : (minVersion === maxVersion ? maxVersion : null),
+        version_min: minVersion || null,
+        version_max: maxVersion || null,
         node_ids,
+        node_versions: nodeVersions,
         profile_ids,
-        profile_snapshot,
-        protocol_configs,
+        config_names,
         params_snapshot: deployParams,
         results,
         created_at: new Date().toISOString(),
     };
     await kvPut(KV, KEY.deploy(did), deploy);
-    await idxAdd(KV, KEY.idxDeploys(), { id: did, version: ver, created_at: deploy.created_at });
+    await idxAdd(KV, KEY.idxDeploys(), {
+        id: did,
+        version: deploy.version,
+        version_min: deploy.version_min,
+        version_max: deploy.version_max,
+        created_at: deploy.created_at,
+    });
 
-    return ok({ deploy_id: did, version: ver, results });
+    return ok({
+        deploy_id: did,
+        version: deploy.version,
+        version_min: deploy.version_min,
+        version_max: deploy.version_max,
+        node_versions: nodeVersions,
+        results,
+    });
 }
