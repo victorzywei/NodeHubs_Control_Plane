@@ -179,7 +179,9 @@ function resolveProfileParams(profile, params, node, nodeType) {
     if (nodeType === 'cf_worker') {
         resolved.port = params.cf_port || 443;
     } else {
-        resolved.port = params.listen_port || resolved.port || 443;
+        // Keep per-profile template port as the first priority so subscription
+        // links stay consistent with deployed profile defaults.
+        resolved.port = resolved.port || params.listen_port || 443;
 
         // VPS-only passthrough fields used by server-side apply scripts
         // (e.g. Xray TLS cert/key and Reality private key)

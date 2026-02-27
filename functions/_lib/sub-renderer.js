@@ -10,6 +10,24 @@ function cleanDomain(domain) {
     return domain.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
 }
 
+/** Resolve outbound port strictly from delivered plan semantics */
+function resolvePlanPort(plan, entry) {
+    const settingsPort = entry?.settings?.port;
+    if (settingsPort !== undefined && settingsPort !== null && settingsPort !== '') {
+        return settingsPort;
+    }
+
+    if (plan?.node_type === 'vps') {
+        return plan?.routing?.listen_port;
+    }
+
+    if (plan?.node_type === 'cf_worker') {
+        return plan?.cf_config?.port ?? plan?.runtime_config?.listen_port;
+    }
+
+    return undefined;
+}
+
 /**
  * Render subscription for a given token
  */
@@ -44,7 +62,8 @@ export async function renderSubscription(kv, sub, format = 'v2ray') {
         for (const entry of entries) {
             const settings = entry.settings || {};
             const addr = cleanDomain(node.entry_domain) || node.entry_ip || '127.0.0.1';
-            const port = settings.port || plan.cf_config?.port || plan.routing?.listen_port || 443;
+            const port = resolvePlanPort(plan, entry);
+            if (port === undefined || port === null || port === '') continue;
             const isHttpPort = CF_PORTS_HTTP.includes(parseInt(port));
 
             outbounds.push({
