@@ -86,7 +86,7 @@ fi
 
 install_base_packages() {
   local missing=()
-  for bin in curl jq unzip; do
+  for bin in curl jq unzip python3; do
     if ! command -v "$bin" >/dev/null 2>&1; then
       missing+=("$bin")
     fi
@@ -142,7 +142,7 @@ install_base_packages() {
     install_jq_binary || true
   fi
 
-  for bin in curl jq unzip; do
+  for bin in curl jq unzip python3; do
     if ! command -v "$bin" >/dev/null 2>&1; then
       echo "Missing required tools: \${missing[*]}"
       if [[ "$pkg_install_failed" -eq 1 ]]; then
@@ -166,6 +166,195 @@ install_base_packages() {
       fi
     fi
   done
+}
+
+write_diag_server() {
+  cat > /usr/local/bin/nodehub-diag-server.py <<'PY'
+#!/usr/bin/env python3
+import json
+import os
+import ssl
+import subprocess
+import threading
+import time
+from collections import deque
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
+
+ENV_FILE = "/etc/nodehub/agent.env"
+STATE_FILE = "/var/lib/nodehub/current_version"
+AGENT_LOG = "/var/log/nodehub-agent.log"
+XRAY_LOG = "/var/log/xray/xray.log"
+HTTPS_CERT = "/etc/ssl/certs/nodehub.crt"
+HTTPS_KEY = "/etc/ssl/private/nodehub.key"
+
+
+def load_env():
+    env = {}
+    if os.path.isfile(ENV_FILE):
+        with open(ENV_FILE, "r", encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip()
+    return env
+
+
+def process_running(pattern):
+    r = subprocess.run(
+        ["pgrep", "-f", pattern],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return r.returncode == 0
+
+
+def read_last_lines(path, max_lines=200):
+    if not os.path.isfile(path):
+        return []
+    dq = deque(maxlen=max_lines)
+    with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            dq.append(line.rstrip("\n"))
+    return list(dq)
+
+
+def get_current_version():
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8", errors="ignore") as fh:
+            return int((fh.read() or "0").strip())
+    except Exception:
+        return 0
+
+
+def extract_recent_errors(lines, max_items=30):
+    keys = ("error", "failed", "invalid", "exception", "timeout", "denied")
+    items = [ln for ln in lines if any(k in ln.lower() for k in keys)]
+    return items[-max_items:]
+
+
+def build_diag(node_id):
+    agent_lines = read_last_lines(AGENT_LOG, 300)
+    xray_lines = read_last_lines(XRAY_LOG, 200)
+    return {
+        "node_id": node_id,
+        "timestamp": int(time.time()),
+        "agent_running": process_running("/usr/local/bin/nodehub-agent.sh"),
+        "xray_running": process_running("/usr/local/bin/xray run -config"),
+        "current_version": get_current_version(),
+        "logs": {
+            "agent_recent_errors": extract_recent_errors(agent_lines),
+            "xray_recent_errors": extract_recent_errors(xray_lines),
+            "agent_tail": agent_lines[-80:],
+            "xray_tail": xray_lines[-80:],
+        },
+    }
+
+
+def render_html(data):
+    body = json.dumps(data, ensure_ascii=False, indent=2)
+    escaped = (
+        body.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NodeHub 诊断</title>
+  <style>
+    body {{ font-family: ui-monospace, Menlo, Consolas, monospace; margin: 16px; background: #0b1020; color: #dbeafe; }}
+    .card {{ border: 1px solid #223; border-radius: 8px; padding: 12px; background: #0f172a; }}
+    pre {{ white-space: pre-wrap; word-break: break-word; margin: 0; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <pre>{escaped}</pre>
+  </div>
+</body>
+</html>"""
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        env = load_env()
+        node_id = env.get("NODE_ID", "")
+        parsed = urlparse(self.path)
+        path = parsed.path or "/"
+        query = parse_qs(parsed.query or "")
+
+        allowed = {"/status"}
+        if node_id:
+            allowed.add(f"/{node_id}")
+        if path not in allowed:
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(b'{"success":false,"error":"not found"}')
+            return
+
+        data = build_diag(node_id)
+        want_json = query.get("format", [""])[0] == "json" or path == "/status"
+        if want_json:
+            payload = json.dumps({"success": True, "data": data}, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        html = render_html(data).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(html)
+
+    def log_message(self, _fmt, *_args):
+        return
+
+
+def serve_http():
+    httpd = ThreadingHTTPServer(("0.0.0.0", 49480), Handler)
+    httpd.serve_forever()
+
+
+def serve_https():
+    if not (os.path.isfile(HTTPS_CERT) and os.path.isfile(HTTPS_KEY)):
+        return
+    httpd = ThreadingHTTPServer(("0.0.0.0", 49479), Handler)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(certfile=HTTPS_CERT, keyfile=HTTPS_KEY)
+    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+    httpd.serve_forever()
+
+
+def main():
+    threads = []
+    t_http = threading.Thread(target=serve_http, daemon=True)
+    t_http.start()
+    threads.append(t_http)
+
+    t_https = threading.Thread(target=serve_https, daemon=True)
+    t_https.start()
+    threads.append(t_https)
+
+    while True:
+        time.sleep(3600)
+
+
+if __name__ == "__main__":
+    main()
+PY
+  chmod +x /usr/local/bin/nodehub-diag-server.py
 }
 
 install_xray() {
@@ -709,6 +898,23 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
+
+  cat > /etc/systemd/system/nodehub-diagnostics.service <<'UNIT'
+[Unit]
+Description=NodeHub Diagnostics Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/nodehub/agent.env
+ExecStart=/usr/local/bin/nodehub-diag-server.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+UNIT
 }
 
 write_env_file() {
@@ -728,6 +934,7 @@ install_xray
 install_tls_certificate
 write_converter
 write_agent_script
+write_diag_server
 write_systemd_unit
 write_env_file
 
@@ -744,8 +951,10 @@ if [ "$USE_SYSTEMD" = true ]; then
   echo "Starting services with systemd..."
   systemctl enable xray 2>/dev/null || true
   systemctl enable nodehub-agent 2>/dev/null || true
+  systemctl enable nodehub-diagnostics 2>/dev/null || true
   
   if systemctl restart nodehub-agent 2>/dev/null; then
+    systemctl restart nodehub-diagnostics 2>/dev/null || true
     if systemctl restart xray 2>/dev/null; then
       echo "Services started successfully via systemd."
     else
@@ -764,6 +973,7 @@ if [ "$USE_SYSTEMD" = false ]; then
   pkill -f "xray run" 2>/dev/null || true
   pkill -f "nodehub-agent.sh" 2>/dev/null || true
   pkill -f "nodehub-agent-watchdog.sh" 2>/dev/null || true
+  pkill -f "nodehub-diag-server.py" 2>/dev/null || true
   sleep 1
   
   # Start Xray
@@ -778,6 +988,11 @@ if [ "$USE_SYSTEMD" = false ]; then
   AGENT_PID=$!
   echo "NodeHub agent started (PID: $AGENT_PID)"
 
+  # Start diagnostics server
+  nohup /usr/local/bin/nodehub-diag-server.py >/var/log/nodehub-diag.log 2>&1 &
+  DIAG_PID=$!
+  echo "NodeHub diagnostics started (PID: $DIAG_PID)"
+
   # Keep agent process alive in non-systemd environments
   cat > /usr/local/bin/nodehub-agent-watchdog.sh <<'WATCHDOG'
 #!/usr/bin/env bash
@@ -785,6 +1000,9 @@ set -u
 while true; do
   if ! pgrep -f "/usr/local/bin/nodehub-agent.sh" >/dev/null 2>&1; then
     nohup /usr/local/bin/nodehub-agent.sh >/var/log/nodehub-agent.log 2>&1 &
+  fi
+  if ! pgrep -f "/usr/local/bin/nodehub-diag-server.py" >/dev/null 2>&1; then
+    nohup /usr/local/bin/nodehub-diag-server.py >/var/log/nodehub-diag.log 2>&1 &
   fi
   sleep 5
 done
@@ -797,6 +1015,7 @@ WATCHDOG
 #!/bin/bash
 /usr/local/bin/xray run -config /usr/local/etc/xray/config.json >/var/log/xray/xray.log 2>&1 &
 /usr/local/bin/nodehub-agent.sh >/var/log/nodehub-agent.log 2>&1 &
+/usr/local/bin/nodehub-diag-server.py >/var/log/nodehub-diag.log 2>&1 &
 /usr/local/bin/nodehub-agent-watchdog.sh >/var/log/nodehub-agent-watchdog.log 2>&1 &
 RCLOCAL
   chmod +x /etc/rc.local 2>/dev/null || true
@@ -832,12 +1051,14 @@ echo ""
 if [ "$USE_SYSTEMD" = true ]; then
   echo "Service Management (systemd):"
   echo "  systemctl status nodehub-agent"
+  echo "  systemctl status nodehub-diagnostics"
   echo "  systemctl status xray"
   echo "  journalctl -u nodehub-agent -f"
 else
   echo "Service Management (manual):"
   echo "  ps aux | grep -E 'xray|nodehub-agent'"
   echo "  tail -f /var/log/nodehub-agent.log"
+  echo "  tail -f /var/log/nodehub-diag.log"
   echo "  tail -f /var/log/xray/xray.log"
   echo ""
   echo "  To stop: pkill -f 'xray run' && pkill -f 'nodehub-agent.sh'"
