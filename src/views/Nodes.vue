@@ -167,14 +167,14 @@ function openNodeDiagnosisByDomain(domain) {
   if (!detailNode.value?.id) return
   const host = normalizeHost(domain)
   if (!host) return
-  window.open(`https://${host}/${encodeURIComponent(detailNode.value.id)}`, '_blank', 'noopener,noreferrer')
+  window.open(`https://${host}:49479/${encodeURIComponent(detailNode.value.id)}`, '_blank', 'noopener,noreferrer')
 }
 
 function openNodeDiagnosisByIp(ip) {
   if (!detailNode.value?.id) return
   const host = normalizeHost(ip)
   if (!host) return
-  window.open(`http://${host}/${encodeURIComponent(detailNode.value.id)}`, '_blank', 'noopener,noreferrer')
+  window.open(`http://${host}:49480/${encodeURIComponent(detailNode.value.id)}`, '_blank', 'noopener,noreferrer')
 }
 </script>
 
