@@ -120,6 +120,24 @@ const protocolColors = {
     vless: 'text-accent', trojan: 'text-orange-400', vmess: 'text-blue-400',
     shadowsocks: 'text-violet-400', hysteria2: 'text-purple-400',
 }
+
+function normalizeProtoConfig(entry) {
+    if (!entry || typeof entry !== 'string') return ''
+    return entry.trim()
+}
+
+function getDeployProtocolConfigs(deploy) {
+    if (Array.isArray(deploy?.protocol_configs) && deploy.protocol_configs.length) {
+        return deploy.protocol_configs.map(normalizeProtoConfig).filter(Boolean)
+    }
+    if (Array.isArray(deploy?.profile_snapshot) && deploy.profile_snapshot.length) {
+        return deploy.profile_snapshot
+            .map(p => [p?.protocol, p?.transport, p?.tls_mode].filter(Boolean).join('+'))
+            .map(normalizeProtoConfig)
+            .filter(Boolean)
+    }
+    return (deploy?.profile_ids || []).map(normalizeProtoConfig).filter(Boolean)
+}
 </script>
 
 <template>
@@ -237,7 +255,9 @@ const protocolColors = {
                         </td>
                         <td class="text-xs text-text-muted">{{ new Date(d.created_at).toLocaleString('zh-CN') }}</td>
                         <td class="text-xs">{{ d.results?.length || 0 }} 节点</td>
-                        <td class="text-xs text-text-muted font-mono">{{ (d.profile_ids || []).join(', ') }}</td>
+                        <td class="text-xs text-text-muted font-mono">
+                            {{ getDeployProtocolConfigs(d).join(', ') || '-' }}
+                        </td>
                         <td>
                             <div class="flex items-center gap-1.5">
                                 <span class="status-dot" :class="(d.results?.filter(r => r.status === 'deployed').length || 0) === (d.results?.length || 0) ? 'status-dot-online' : 'status-dot-warning'" />

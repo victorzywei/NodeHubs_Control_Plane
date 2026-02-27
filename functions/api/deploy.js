@@ -117,11 +117,24 @@ export async function onRequestPost(context) {
     }
 
     // Phase 3: Write deploy record
+    const profile_snapshot = profiles.map((p) => ({
+        id: p.id,
+        name: p.name || '',
+        protocol: p.protocol || '',
+        transport: p.transport || '',
+        tls_mode: p.tls_mode || '',
+    }));
+    const protocol_configs = profile_snapshot
+        .map((p) => [p.protocol, p.transport, p.tls_mode].filter(Boolean).join('+'))
+        .filter(Boolean);
+
     const deploy = {
         id: did,
         version: ver,
         node_ids,
         profile_ids,
+        profile_snapshot,
+        protocol_configs,
         params_snapshot: deployParams,
         results,
         created_at: new Date().toISOString(),
