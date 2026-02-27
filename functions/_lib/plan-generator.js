@@ -2,7 +2,7 @@
 // 基于注册表系统的计划生成器
 
 import {
-    BUILTIN_PROFILES, PROTOCOL_REGISTRY, TRANSPORT_REGISTRY, TLS_REGISTRY,
+    PROTOCOL_REGISTRY, TRANSPORT_REGISTRY, TLS_REGISTRY,
     NODE_ADAPTERS, CF_PORTS_HTTP, isProfileCompatibleWithNode, getProfileSchema,
 } from './constants.js';
 
@@ -64,13 +64,12 @@ export function isProfileCompatible(profile, node) {
  */
 function generateVpsPlan(node, profiles, params, version) {
     const inbounds = profiles.map(profile => {
-        const templateProfile = resolveProfile(profile);
         return {
             tag: `inbound-${profile.id}`,
             protocol: profile.protocol,
             transport: profile.transport,
             tls_mode: profile.tls_mode,
-            settings: resolveProfileParams(templateProfile, params, node, 'vps'),
+            settings: resolveProfileParams(profile, params, node, 'vps'),
         };
     });
 
@@ -92,7 +91,7 @@ function generateVpsPlan(node, profiles, params, version) {
         inbounds,
         routing: {
             strategy: 'unified_port',
-            listen_port: params.listen_port || 443,
+            listen_port: inbounds[0]?.settings?.port,
         },
         meta: {
             profile_count: profiles.length,
@@ -105,13 +104,8 @@ function generateVpsPlan(node, profiles, params, version) {
  * Generate a CF Worker plan — limited to ws, with CF-specific params
  */
 function generateWorkerPlan(node, profiles, params, version) {
-    // Determine port and TLS from the CF port selection
-    const cfPort = params.cf_port || 443;
-    const isHttp = CF_PORTS_HTTP.includes(cfPort);
-
     const configs = profiles.map(profile => {
-        const templateProfile = resolveProfile(profile);
-        const settings = resolveProfileParams(templateProfile, params, node, 'cf_worker');
+        const settings = resolveProfileParams(profile, params, node, 'cf_worker');
 
         // 标准路径 + Early Data 优化（Worker 自动识别协议）
         settings.path = settings.path || '/?ed=2560';
@@ -124,6 +118,8 @@ function generateWorkerPlan(node, profiles, params, version) {
             settings,
         };
     });
+    const effectivePort = params.cf_port ?? configs[0]?.settings?.port;
+    const isHttp = CF_PORTS_HTTP.includes(Number(effectivePort));
 
     return {
         version,
@@ -131,28 +127,20 @@ function generateWorkerPlan(node, profiles, params, version) {
         node_type: 'cf_worker',
         created_at: new Date().toISOString(),
         cf_config: {
-            port: cfPort,
+            port: effectivePort,
             is_https: !isHttp,
             proxyip: params.proxyip || '',
             nat64: !!params.nat64,
         },
         runtime_config: {
             configs,
-            listen_port: cfPort,
+            listen_port: effectivePort,
         },
         meta: {
             profile_count: profiles.length,
             profile_ids: profiles.map(p => p.id),
         },
     };
-}
-
-/**
- * Resolve a profile to its full definition (builtin or custom)
- */
-function resolveProfile(profile) {
-    const builtin = BUILTIN_PROFILES.find(bp => bp.id === profile.id);
-    return builtin || profile;
 }
 
 function supportsCdnProfile(profile) {
@@ -197,13 +185,12 @@ function resolveProfileParams(profile, params, node, nodeType) {
         }
     }
 
-    // Add port based on node type
+    // Add/validate port based on node type. No hard-coded fallback port.
     if (nodeType === 'cf_worker') {
-        resolved.port = params.cf_port || 443;
+        const workerPort = params.cf_port !== undefined ? params.cf_port : resolved.port;
+        resolved.port = requireValidPort(workerPort, `${profile.id}: missing/invalid cf_worker port`);
     } else {
-        // Keep per-profile template port as the first priority so subscription
-        // links stay consistent with deployed profile defaults.
-        resolved.port = resolved.port || params.listen_port || 443;
+        resolved.port = requireValidPort(resolved.port, `${profile.id}: missing/invalid vps port`);
 
         // VPS-only passthrough fields used by server-side apply scripts
         // (e.g. Xray TLS cert/key and Reality private key)
@@ -231,4 +218,12 @@ function generatePassword() {
         result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return result;
+}
+
+function requireValidPort(value, errorMessage) {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 1 || n > 65535) {
+        throw new Error(errorMessage);
+    }
+    return n;
 }

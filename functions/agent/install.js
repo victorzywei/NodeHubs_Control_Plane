@@ -683,11 +683,16 @@ def build_inbound($default_port):
       "tag": $tag,
       "protocol": $proto,
       "listen": "0.0.0.0",
-      "port": as_int(($s.port // $default_port); $default_port),
+      "port": as_int(($s.port // $default_port); -1),
       "settings": {},
       "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]},
       "streamSettings": ($in | build_stream)
     }
+  | if (.port <= 0 or .port > 65535) then
+      fail("\($tag): missing or invalid port")
+    else
+      .
+    end
   | if $proto == "vless" then
       ($s.uuid // "") as $uuid
       | if ($uuid | nonempty) | not then
@@ -727,7 +732,7 @@ def build_inbound($default_port):
 | if ($plan.node_type // "") != "vps" then fail("only vps plan is supported") else . end
 | ($plan.inbounds // []) as $inbounds
 | if ($inbounds | length) == 0 then fail("plan has no inbounds") else . end
-| ($plan.routing.listen_port // 443 | as_int(.; 443)) as $default_port
+| (($plan.routing.listen_port // empty) | as_int(.; -1)) as $default_port
 | {
     "log":{"loglevel":"warning"},
     "inbounds":($inbounds | map(build_inbound($default_port))),

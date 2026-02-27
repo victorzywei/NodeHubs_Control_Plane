@@ -55,12 +55,20 @@ export async function onRequestPost(context) {
         return err('VALIDATION', 'profile_ids must be a non-empty array', 400);
     }
 
-    // Resolve profiles
+    // Resolve profiles (built-ins must include persisted overrides)
     const profiles = [];
     for (const pid of profile_ids) {
         const builtin = BUILTIN_PROFILES.find(p => p.id === pid);
         if (builtin) {
-            profiles.push(builtin);
+            const override = await kvGet(KV, KEY.profileOverride(pid));
+            const mergedBuiltin = override
+                ? {
+                    ...builtin,
+                    defaults: { ...(builtin.defaults || {}), ...(override.defaults || {}) },
+                    description: override.description || builtin.description,
+                }
+                : builtin;
+            profiles.push(mergedBuiltin);
         } else {
             const custom = await kvGet(KV, KEY.profile(pid));
             if (custom) profiles.push(custom);

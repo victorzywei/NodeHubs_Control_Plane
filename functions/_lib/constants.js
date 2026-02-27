@@ -173,7 +173,7 @@ export const NODE_ADAPTERS = {
         name: 'VPS',
         description: '多协议、全功能 VPS 节点',
         fields: {
-            listen_port: { type: 'number', default: 443, label: '监听端口', hint: '可自定义任意端口' },
+            listen_port: { type: 'number', required: true, label: '监听端口', hint: '使用模板中定义的端口' },
         },
         // VPS 支持所有协议、传输和 TLS
         supported_protocols: ['vless', 'trojan', 'vmess', 'shadowsocks', 'hysteria2'],
@@ -184,7 +184,7 @@ export const NODE_ADAPTERS = {
         name: 'CF Worker',
         description: 'Cloudflare Workers/Pages 节点，受 CDN 限制',
         fields: {
-            cf_port: { type: 'select', options: [...CF_PORTS_HTTPS, ...CF_PORTS_HTTP], default: 443, label: 'CF 端口', hint: 'HTTPS端口=TLS, HTTP端口=无TLS' },
+            cf_port: { type: 'select', options: [...CF_PORTS_HTTPS, ...CF_PORTS_HTTP], required: true, label: 'CF 端口', hint: '使用模板中定义的端口；HTTPS端口=TLS, HTTP端口=无TLS' },
             proxyip: { type: 'string', default: '', label: 'ProxyIP', hint: '反代 IP 地址，填入后解锁更多网站' },
             nat64: { type: 'boolean', default: false, label: 'NAT64', hint: '开启后使用 NAT64 做 ProxyIP' },
         },
@@ -375,7 +375,9 @@ export function buildFullSchema(protocolId, transportId, tlsMode) {
     const schema = {};
 
     // 通用字段：端口（所有协议都有）
-    schema.port = { type: 'number', default: 443, label: '端口', hint: '监听/连接端口', group: 'common' };
+    // No hard-coded default here. Port must come from profile defaults
+    // (or explicit input) to avoid accidental fallback to 443.
+    schema.port = { type: 'number', required: true, label: '端口', hint: '监听/连接端口', group: 'common' };
 
     const pReg = PROTOCOL_REGISTRY[protocolId];
     const tReg = TRANSPORT_REGISTRY[transportId];
