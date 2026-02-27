@@ -749,7 +749,7 @@ SH
 write_agent_script() {
   cat > /usr/local/bin/nodehub-agent.sh <<'SH'
 #!/usr/bin/env bash
-set -u
+set +u
 
 if [[ -f /etc/nodehub/agent.env ]]; then
   # shellcheck disable=SC1091
@@ -787,7 +787,7 @@ report_apply_result() {
     --arg status "$status" \
     --arg message "$message" \
     '{node_id:$node_id, version:$version, status:$status, message:$message}')
-  curl -fsS -X POST \
+  curl --connect-timeout 5 --max-time 20 -fsS -X POST \
     -H "Content-Type: application/json" \
     -H "X-Node-Token: $NODE_TOKEN" \
     -d "$payload" \
@@ -822,8 +822,9 @@ restart_xray() {
 
 while true; do
   current_version=$(cat "$STATE_FILE" 2>/dev/null || echo 0)
+  [[ "$current_version" =~ ^[0-9]+$ ]] || current_version=0
 
-  version_resp=$(curl -fsS \
+  version_resp=$(curl --connect-timeout 5 --max-time 20 -fsS \
     -H "X-Node-Token: $NODE_TOKEN" \
     "$API_BASE/agent/version?node_id=$NODE_ID&current_version=$current_version" 2>/tmp/nodehub-version.err || true)
   if [[ -z "$version_resp" ]]; then
@@ -844,7 +845,7 @@ while true; do
 
   if [[ "$needs_update" == "true" ]]; then
     log "update required: $current_version -> $target_version"
-    plan_resp=$(curl -fsS \
+    plan_resp=$(curl --connect-timeout 5 --max-time 20 -fsS \
       -H "X-Node-Token: $NODE_TOKEN" \
       "$API_BASE/agent/plan?node_id=$NODE_ID&version=$target_version" 2>/tmp/nodehub-plan.err || true)
 
@@ -884,8 +885,6 @@ while true; do
       continue
     fi
 
-    prev_cfg="$XRAY_CONFIG.bak"
-    cp "$XRAY_CONFIG" "$prev_cfg" 2>/dev/null || true
     if ! install -m 600 "$tmp_cfg" "$XRAY_CONFIG" 2>/tmp/nodehub-install.err; then
       msg=$(tr '\\n' ' ' < /tmp/nodehub-install.err | cut -c1-500)
       log "xray config install failed: $msg"
@@ -900,9 +899,6 @@ while true; do
       test_err=$(tr '\\n' ' ' < /tmp/nodehub-xray-test.err | cut -c1-500)
       msg="xray config test failed\${test_err:+: $test_err}"
       log "$msg"
-      if [[ -f "$prev_cfg" ]]; then
-        cp "$prev_cfg" "$XRAY_CONFIG" 2>/dev/null || true
-      fi
       report_apply_result "$target_version" "failed" "$msg"
       sleep "$POLL_INTERVAL"
       continue
@@ -911,16 +907,11 @@ while true; do
     if ! restart_xray >/tmp/nodehub-restart.err 2>&1; then
       msg=$(tr '\\n' ' ' < /tmp/nodehub-restart.err | cut -c1-500)
       log "xray restart failed: $msg"
-      if [[ -f "$prev_cfg" ]]; then
-        cp "$prev_cfg" "$XRAY_CONFIG" 2>/dev/null || true
-        restart_xray >/dev/null 2>&1 || true
-      fi
       report_apply_result "$target_version" "failed" "xray restart failed: $msg"
       sleep "$POLL_INTERVAL"
       continue
     fi
 
-    rm -f "$prev_cfg" 2>/dev/null || true
     echo "$target_version" > "$STATE_FILE"
     report_apply_result "$target_version" "success" "applied"
     log "applied version $target_version"

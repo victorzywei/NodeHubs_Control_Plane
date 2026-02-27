@@ -53,7 +53,6 @@ export const api = {
 
     // Deploy
     deploy: (data) => request('POST', '/api/deploy', data),
-    rollback: (data) => request('POST', '/api/rollback', data),
     getDeploys: () => request('GET', '/api/deploys'),
 
     // Subscriptions
