@@ -22,7 +22,7 @@ export async function onRequestGet(context) {
     if (!nodeToken) return err('MISSING_TOKEN', 'X-Node-Token header is required', 401);
 
     const KV = env.NODEHUB_KV;
-    const node = await kvGet(KV, KEY.node(nodeId));
+    let node = await kvGet(KV, KEY.node(nodeId));
 
     if (!node) return err('NODE_NOT_FOUND', 'Node not found', 404);
     if (node.node_token !== nodeToken) return err('INVALID_TOKEN', 'Invalid node token', 401);
@@ -33,17 +33,25 @@ export async function onRequestGet(context) {
     const gap = now - lastSeen;
 
     if (gap >= HEARTBEAT_WRITE_INTERVAL_MS) {
-        node.last_seen = new Date(now).toISOString();
-        node.applied_version = currentVersion;
-        await kvPut(KV, KEY.node(nodeId), node);
+        // Re-read latest node before writing heartbeat to avoid clobbering
+        // concurrent deploy updates (e.g. target_version).
+        const latest = await kvGet(KV, KEY.node(nodeId));
+        if (!latest || latest.node_token !== nodeToken) {
+            return err('NODE_NOT_FOUND', 'Node not found', 404);
+        }
+        latest.last_seen = new Date(now).toISOString();
+        latest.applied_version = currentVersion;
+        await kvPut(KV, KEY.node(nodeId), latest);
+        node = latest;
     }
 
-    const needsUpdate = node.target_version && node.target_version > currentVersion;
+    const targetVersion = Number(node.target_version) || 0;
+    const needsUpdate = targetVersion > currentVersion;
 
     return ok({
         node_id: nodeId,
         current_version: currentVersion,
-        target_version: node.target_version || 0,
+        target_version: targetVersion,
         needs_update: needsUpdate,
     });
 }

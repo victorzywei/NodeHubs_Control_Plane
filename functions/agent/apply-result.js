@@ -40,10 +40,15 @@ export async function onRequestPost(context) {
     if (node.node_token !== nodeToken) return err('INVALID_TOKEN', 'Invalid node token', 401);
     const plan = await kvGet(KV, KEY.plan(node_id, versionNum));
     const appliedProtocols = extractAppliedProtocols(plan);
+    const latestNode = await kvGet(KV, KEY.node(node_id));
+    if (!latestNode || latestNode.node_token !== nodeToken) {
+        return err('NODE_NOT_FOUND', 'Node not found', 404);
+    }
+    const writeNode = latestNode;
 
-    if (!node.apply_history) node.apply_history = [];
+    if (!writeNode.apply_history) writeNode.apply_history = [];
     const normalizedMessage = String(message || '');
-    const existingRecord = node.apply_history.find(h => h.version === versionNum);
+    const existingRecord = writeNode.apply_history.find(h => h.version === versionNum);
     const existingProtocols = Array.isArray(existingRecord?.protocols) ? existingRecord.protocols : [];
     const sameAsExisting = existingRecord
         && existingRecord.status === status
@@ -54,16 +59,16 @@ export async function onRequestPost(context) {
     }
 
     // Record apply result
-    node.last_apply_status = status;
-    node.last_apply_message = normalizedMessage;
-    node.last_apply_at = new Date().toISOString();
-    node.last_seen = new Date().toISOString();
+    writeNode.last_apply_status = status;
+    writeNode.last_apply_message = normalizedMessage;
+    writeNode.last_apply_at = new Date().toISOString();
+    writeNode.last_seen = new Date().toISOString();
 
     if (status === 'success') {
-        node.applied_version = versionNum;
-        node.consecutive_failures = 0;
+        writeNode.applied_version = versionNum;
+        writeNode.consecutive_failures = 0;
     } else {
-        node.consecutive_failures = (node.consecutive_failures || 0) + 1;
+        writeNode.consecutive_failures = (writeNode.consecutive_failures || 0) + 1;
     }
 
     // Write history only on state/message transition for this version
@@ -74,23 +79,23 @@ export async function onRequestPost(context) {
         existingRecord.protocols = appliedProtocols;
         existingRecord.timestamp = nowIso;
     } else {
-        node.apply_history.unshift({
+        writeNode.apply_history.unshift({
             version: versionNum,
             status,
             message: normalizedMessage,
             protocols: appliedProtocols,
             timestamp: nowIso,
         });
-        node.apply_history = node.apply_history.slice(0, MAX_HISTORY);
+        writeNode.apply_history = writeNode.apply_history.slice(0, MAX_HISTORY);
     }
 
-    await kvPut(KV, KEY.node(node_id), node);
+    await kvPut(KV, KEY.node(node_id), writeNode);
 
     return ok({
         recorded: true,
         version: versionNum,
         status,
-        applied_version: node.applied_version,
-        consecutive_failures: node.consecutive_failures,
+        applied_version: writeNode.applied_version,
+        consecutive_failures: writeNode.consecutive_failures,
     });
 }
