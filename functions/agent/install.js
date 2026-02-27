@@ -524,6 +524,7 @@ fi
 mkdir -p /var/lib/nodehub /usr/local/etc/xray
 STATE_FILE="/var/lib/nodehub/current_version"
 [[ -f "$STATE_FILE" ]] || echo 0 > "$STATE_FILE"
+XRAY_PID_FILE="/var/run/nodehub-xray.pid"
 
 log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
 
@@ -553,6 +554,32 @@ report_apply_result() {
     -H "X-Node-Token: $NODE_TOKEN" \
     -d "$payload" \
     "$API_BASE/agent/apply-result" >/dev/null || true
+}
+
+restart_xray() {
+  if command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload >/dev/null 2>&1; then
+    systemctl restart xray
+    return $?
+  fi
+
+  # non-systemd fallback: restart managed xray process and refresh pid file
+  if [[ -f "$XRAY_PID_FILE" ]]; then
+    old_pid=$(cat "$XRAY_PID_FILE" 2>/dev/null || true)
+    if [[ -n "\${old_pid:-}" ]] && kill -0 "$old_pid" 2>/dev/null; then
+      kill "$old_pid" 2>/dev/null || true
+      sleep 1
+    fi
+  fi
+  pkill -f "/usr/local/bin/xray run -config $XRAY_CONFIG" 2>/dev/null || true
+  mkdir -p /var/log/xray
+  nohup /usr/local/bin/xray run -config "$XRAY_CONFIG" >/var/log/xray/xray.log 2>&1 &
+  new_pid=$!
+  echo "$new_pid" > "$XRAY_PID_FILE"
+  sleep 1
+  if kill -0 "$new_pid" 2>/dev/null; then
+    return 0
+  fi
+  return 1
 }
 
 while true; do
@@ -599,30 +626,61 @@ while true; do
       continue
     fi
 
-    if ! echo "$plan_resp" | /usr/local/bin/nodehub-plan-to-xray > "$XRAY_CONFIG" 2>/tmp/nodehub-apply.err; then
+    tmp_cfg=$(mktemp /tmp/nodehub-xray-config.XXXXXX)
+    if ! echo "$plan_resp" | /usr/local/bin/nodehub-plan-to-xray > "$tmp_cfg" 2>/tmp/nodehub-apply.err; then
       msg=$(tr '\n' ' ' < /tmp/nodehub-apply.err | cut -c1-500)
       log "plan convert failed: $msg"
       report_apply_result "$target_version" "failed" "plan convert failed: $msg"
+      rm -f "$tmp_cfg"
       sleep "$POLL_INTERVAL"
       continue
     fi
 
+    if ! xray run -test -config "$tmp_cfg" >/dev/null 2>&1 && ! xray -test -config "$tmp_cfg" >/dev/null 2>&1; then
+      msg="xray config test failed"
+      log "$msg"
+      report_apply_result "$target_version" "failed" "$msg"
+      rm -f "$tmp_cfg"
+      sleep "$POLL_INTERVAL"
+      continue
+    fi
+
+    prev_cfg="$XRAY_CONFIG.bak"
+    cp "$XRAY_CONFIG" "$prev_cfg" 2>/dev/null || true
+    if ! install -m 600 "$tmp_cfg" "$XRAY_CONFIG" 2>/tmp/nodehub-install.err; then
+      msg=$(tr '\n' ' ' < /tmp/nodehub-install.err | cut -c1-500)
+      log "xray config install failed: $msg"
+      report_apply_result "$target_version" "failed" "xray config install failed: $msg"
+      rm -f "$tmp_cfg"
+      sleep "$POLL_INTERVAL"
+      continue
+    fi
+    rm -f "$tmp_cfg"
+
     if ! test_xray_config; then
       msg="xray config test failed"
       log "$msg"
+      if [[ -f "$prev_cfg" ]]; then
+        cp "$prev_cfg" "$XRAY_CONFIG" 2>/dev/null || true
+      fi
       report_apply_result "$target_version" "failed" "$msg"
       sleep "$POLL_INTERVAL"
       continue
     fi
 
-    if ! systemctl restart xray >/tmp/nodehub-restart.err 2>&1; then
+    if ! restart_xray >/tmp/nodehub-restart.err 2>&1; then
       msg=$(tr '\n' ' ' < /tmp/nodehub-restart.err | cut -c1-500)
       log "xray restart failed: $msg"
+      if [[ -f "$prev_cfg" ]]; then
+        cp "$prev_cfg" "$XRAY_CONFIG" 2>/dev/null || true
+        restart_xray >/dev/null 2>&1 || true
+      fi
       report_apply_result "$target_version" "failed" "xray restart failed: $msg"
       sleep "$POLL_INTERVAL"
       continue
     fi
 
+    rm -f "$prev_cfg" 2>/dev/null || true
     echo "$target_version" > "$STATE_FILE"
     report_apply_result "$target_version" "success" "applied"
     log "applied version $target_version"
@@ -705,24 +763,41 @@ if [ "$USE_SYSTEMD" = false ]; then
   # Kill any existing processes
   pkill -f "xray run" 2>/dev/null || true
   pkill -f "nodehub-agent.sh" 2>/dev/null || true
+  pkill -f "nodehub-agent-watchdog.sh" 2>/dev/null || true
   sleep 1
   
   # Start Xray
   mkdir -p /var/log/xray
   nohup /usr/local/bin/xray run -config "$XRAY_CONFIG" >/var/log/xray/xray.log 2>&1 &
   XRAY_PID=$!
+  echo "$XRAY_PID" > /var/run/nodehub-xray.pid
   echo "Xray started (PID: $XRAY_PID)"
   
   # Start NodeHub agent
   nohup /usr/local/bin/nodehub-agent.sh >/var/log/nodehub-agent.log 2>&1 &
   AGENT_PID=$!
   echo "NodeHub agent started (PID: $AGENT_PID)"
+
+  # Keep agent process alive in non-systemd environments
+  cat > /usr/local/bin/nodehub-agent-watchdog.sh <<'WATCHDOG'
+#!/usr/bin/env bash
+set -u
+while true; do
+  if ! pgrep -f "/usr/local/bin/nodehub-agent.sh" >/dev/null 2>&1; then
+    nohup /usr/local/bin/nodehub-agent.sh >/var/log/nodehub-agent.log 2>&1 &
+  fi
+  sleep 5
+done
+WATCHDOG
+  chmod +x /usr/local/bin/nodehub-agent-watchdog.sh
+  nohup /usr/local/bin/nodehub-agent-watchdog.sh >/var/log/nodehub-agent-watchdog.log 2>&1 &
   
   # Create a simple init script for auto-start on reboot
   cat > /etc/rc.local <<'RCLOCAL'
 #!/bin/bash
 /usr/local/bin/xray run -config /usr/local/etc/xray/config.json >/var/log/xray/xray.log 2>&1 &
 /usr/local/bin/nodehub-agent.sh >/var/log/nodehub-agent.log 2>&1 &
+/usr/local/bin/nodehub-agent-watchdog.sh >/var/log/nodehub-agent-watchdog.log 2>&1 &
 RCLOCAL
   chmod +x /etc/rc.local 2>/dev/null || true
 fi
