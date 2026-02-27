@@ -42,6 +42,16 @@ export async function idxList(kv, key) {
     return (await kvGet(kv, key)) || [];
 }
 
+export async function idxHydrate(kv, indexKey, entityKeyBuilder) {
+    const idx = await idxList(kv, indexKey);
+    if (idx.length === 0) return [];
+
+    const records = await Promise.all(
+        idx.map((entry) => kvGet(kv, entityKeyBuilder(entry.id)))
+    );
+    return records.filter(Boolean);
+}
+
 export async function idxAdd(kv, key, entry) {
     const list = await idxList(kv, key);
     const idx = list.findIndex(e => e.id === entry.id);

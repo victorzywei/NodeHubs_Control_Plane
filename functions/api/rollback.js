@@ -13,11 +13,12 @@ export async function onRequestPost(context) {
     const body = await request.json();
 
     const { node_ids, target_version } = body;
+    const version = Number(target_version);
     if (!node_ids || !Array.isArray(node_ids)) {
         return err('VALIDATION', 'node_ids must be an array', 400);
     }
-    if (!target_version || typeof target_version !== 'number') {
-        return err('VALIDATION', 'target_version must be a number', 400);
+    if (!Number.isInteger(version) || version < 1) {
+        return err('VALIDATION', 'target_version must be a positive integer', 400);
     }
 
     const results = [];
@@ -29,17 +30,17 @@ export async function onRequestPost(context) {
         }
 
         // Verify plan exists
-        const plan = await kvGet(KV, KEY.plan(nid, target_version));
+        const plan = await kvGet(KV, KEY.plan(nid, version));
         if (!plan) {
-            results.push({ node_id: nid, status: 'skipped', reason: `plan v${target_version} not found` });
+            results.push({ node_id: nid, status: 'skipped', reason: `plan v${version} not found` });
             continue;
         }
 
-        node.target_version = target_version;
+        node.target_version = version;
         node.updated_at = new Date().toISOString();
         await kvPut(KV, KEY.node(nid), node);
         results.push({ node_id: nid, status: 'rolled_back' });
     }
 
-    return ok({ target_version, results });
+    return ok({ target_version: version, results });
 }

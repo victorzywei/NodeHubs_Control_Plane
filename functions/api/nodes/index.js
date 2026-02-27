@@ -2,9 +2,14 @@
 // POST /api/nodes → Create node
 
 import { verifyAdmin } from '../../_lib/auth.js';
-import { kvGet, kvPut, idxList, idxAdd, generateId, generateToken, KEY } from '../../_lib/kv.js';
+import { kvPut, idxHydrate, idxAdd, generateId, generateToken, KEY } from '../../_lib/kv.js';
 import { ok, err } from '../../_lib/response.js';
 import { DEFAULT_CAPABILITIES, ONLINE_THRESHOLD_MS } from '../../_lib/constants.js';
+
+function withOnlineState(node) {
+    const lastSeen = node.last_seen ? new Date(node.last_seen).getTime() : 0;
+    return { ...node, is_online: Date.now() - lastSeen < ONLINE_THRESHOLD_MS };
+}
 
 export async function onRequestGet(context) {
     const { request, env } = context;
@@ -12,18 +17,8 @@ export async function onRequestGet(context) {
     if (!auth.ok) return err('UNAUTHORIZED', auth.error, 401);
 
     const KV = env.NODEHUB_KV;
-    const idx = await idxList(KV, KEY.idxNodes());
-    const nodes = [];
-
-    for (const entry of idx) {
-        const node = await kvGet(KV, KEY.node(entry.id));
-        if (node) {
-            const isOnline = node.last_seen && (Date.now() - new Date(node.last_seen).getTime() < ONLINE_THRESHOLD_MS);
-            nodes.push({ ...node, is_online: isOnline });
-        }
-    }
-
-    return ok(nodes);
+    const nodes = await idxHydrate(KV, KEY.idxNodes(), KEY.node);
+    return ok(nodes.map(withOnlineState));
 }
 
 export async function onRequestPost(context) {

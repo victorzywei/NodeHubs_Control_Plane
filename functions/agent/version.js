@@ -11,10 +11,14 @@ export async function onRequestGet(context) {
 
     const url = new URL(request.url);
     const nodeId = url.searchParams.get('node_id');
-    const currentVersion = parseInt(url.searchParams.get('current_version') || '0', 10);
+    const currentVersionParam = url.searchParams.get('current_version') || '0';
+    const currentVersion = Number(currentVersionParam);
     const nodeToken = request.headers.get('X-Node-Token') || '';
 
     if (!nodeId) return err('MISSING_PARAM', 'node_id is required', 400);
+    if (!Number.isInteger(currentVersion) || currentVersion < 0) {
+        return err('INVALID_PARAM', 'current_version must be a non-negative integer', 400);
+    }
     if (!nodeToken) return err('MISSING_TOKEN', 'X-Node-Token header is required', 401);
 
     const KV = env.NODEHUB_KV;

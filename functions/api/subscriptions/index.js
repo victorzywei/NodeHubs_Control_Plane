@@ -2,7 +2,7 @@
 // POST /api/subscriptions → Create subscription
 
 import { verifyAdmin } from '../../_lib/auth.js';
-import { kvGet, kvPut, idxList, idxAdd, generateToken, KEY } from '../../_lib/kv.js';
+import { kvPut, idxHydrate, idxAdd, generateToken, KEY } from '../../_lib/kv.js';
 import { ok, err } from '../../_lib/response.js';
 
 export async function onRequestGet(context) {
@@ -11,14 +11,7 @@ export async function onRequestGet(context) {
     if (!auth.ok) return err('UNAUTHORIZED', auth.error, 401);
 
     const KV = env.NODEHUB_KV;
-    const idx = await idxList(KV, KEY.idxSubs());
-    const subs = [];
-
-    for (const entry of idx) {
-        const sub = await kvGet(KV, KEY.sub(entry.id));
-        if (sub) subs.push(sub);
-    }
-
+    const subs = await idxHydrate(KV, KEY.idxSubs(), KEY.sub);
     return ok(subs);
 }
 

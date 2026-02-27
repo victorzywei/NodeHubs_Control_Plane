@@ -2,7 +2,7 @@
 // POST /api/profiles → Create custom profile (3x-ui style)
 
 import { verifyAdmin } from '../../_lib/auth.js';
-import { kvGet, kvPut, idxList, idxAdd, generateId, KEY } from '../../_lib/kv.js';
+import { kvGet, kvPut, idxHydrate, idxAdd, generateId, KEY } from '../../_lib/kv.js';
 import { ok, err } from '../../_lib/response.js';
 import {
     BUILTIN_PROFILES, PROTOCOL_REGISTRY, TRANSPORT_REGISTRY, TLS_REGISTRY,
@@ -34,24 +34,20 @@ export async function onRequestGet(context) {
     const KV = env.NODEHUB_KV;
 
     // Load built-in profiles with any user overrides merged
-    const builtins = [];
-    for (const bp of BUILTIN_PROFILES) {
-        const override = await kvGet(KV, KEY.profileOverride(bp.id));
-        const merged = mergeBuiltinOverride(bp, override);
-        merged.schema = getProfileSchema(merged);
-        builtins.push(merged);
-    }
+    const builtins = await Promise.all(
+        BUILTIN_PROFILES.map(async (bp) => {
+            const override = await kvGet(KV, KEY.profileOverride(bp.id));
+            const merged = mergeBuiltinOverride(bp, override);
+            return { ...merged, schema: getProfileSchema(merged) };
+        })
+    );
 
     // Load custom profiles
-    const idx = await idxList(KV, KEY.idxProfiles());
-    const customs = [];
-    for (const entry of idx) {
-        const profile = await kvGet(KV, KEY.profile(entry.id));
-        if (profile) customs.push({
-            ...profile, is_builtin: false,
-            schema: getProfileSchema(profile),
-        });
-    }
+    const customs = (await idxHydrate(KV, KEY.idxProfiles(), KEY.profile)).map((profile) => ({
+        ...profile,
+        is_builtin: false,
+        schema: getProfileSchema(profile),
+    }));
 
     return ok([...builtins, ...customs]);
 }

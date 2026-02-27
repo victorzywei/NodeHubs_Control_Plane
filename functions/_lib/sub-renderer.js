@@ -1,8 +1,8 @@
-// Subscription renderer — generates v2ray, Clash, sing-box configs
-// 全协议支持的订阅渲染器
+// Subscription renderer �?generates v2ray, Clash, sing-box configs
+// 全协议支持的订阅渲染�?
 
 import { kvGet, KEY } from './kv.js';
-import { BUILTIN_PROFILES, CF_PORTS_HTTP } from './constants.js';
+import { CF_PORTS_HTTP } from './constants.js';
 
 /** Strip protocol prefix and trailing slashes from domain strings */
 function cleanDomain(domain) {
@@ -28,33 +28,32 @@ function resolvePlanPort(plan, entry) {
     return undefined;
 }
 
+async function loadVisibleNodes(kv, sub) {
+    const nodeIds = Array.isArray(sub.visible_node_ids) ? sub.visible_node_ids : [];
+    const ids = nodeIds.length > 0
+        ? nodeIds
+        : ((await kvGet(kv, KEY.idxNodes())) || []).map((entry) => entry.id);
+
+    if (ids.length === 0) return [];
+    const nodes = await Promise.all(ids.map((id) => kvGet(kv, KEY.node(id))));
+    return nodes.filter(Boolean);
+}
+
 /**
  * Render subscription for a given token
  */
 export async function renderSubscription(kv, sub, format = 'v2ray') {
-    // Get all visible nodes
-    const nodes = [];
-    const nodeIds = sub.visible_node_ids || [];
+    const nodes = await loadVisibleNodes(kv, sub);
+    const plans = await Promise.all(
+        nodes.map(async (node) => {
+            if (!node.target_version) return { node, plan: null };
+            const plan = await kvGet(kv, KEY.plan(node.id, node.target_version));
+            return { node, plan };
+        })
+    );
 
-    if (nodeIds.length === 0) {
-        // All nodes
-        const idx = (await kvGet(kv, KEY.idxNodes())) || [];
-        for (const entry of idx) {
-            const node = await kvGet(kv, KEY.node(entry.id));
-            if (node) nodes.push(node);
-        }
-    } else {
-        for (const nid of nodeIds) {
-            const node = await kvGet(kv, KEY.node(nid));
-            if (node) nodes.push(node);
-        }
-    }
-
-    // Get plans for each node → extract outbound configs
     const outbounds = [];
-    for (const node of nodes) {
-        if (!node.target_version) continue;
-        const plan = await kvGet(kv, KEY.plan(node.id, node.target_version));
+    for (const { node, plan } of plans) {
         if (!plan) continue;
 
         // Unified extraction: supports both VPS inbounds and CF Worker configs
@@ -64,7 +63,7 @@ export async function renderSubscription(kv, sub, format = 'v2ray') {
             const addr = cleanDomain(node.entry_domain) || node.entry_ip || '127.0.0.1';
             const port = resolvePlanPort(plan, entry);
             if (port === undefined || port === null || port === '') continue;
-            const isHttpPort = CF_PORTS_HTTP.includes(parseInt(port));
+            const isHttpPort = CF_PORTS_HTTP.includes(parseInt(port, 10));
 
             outbounds.push({
                 name: `${node.name}-${entry.protocol || entry.tag || 'proxy'}`,

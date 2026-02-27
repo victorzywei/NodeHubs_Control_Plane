@@ -6,14 +6,16 @@ import { ok, err } from '../_lib/response.js';
 
 export async function onRequestGet(context) {
     const { request, env } = context;
-
     const url = new URL(request.url);
+
     const nodeId = url.searchParams.get('node_id');
-    const version = parseInt(url.searchParams.get('version') || '0', 10);
+    const versionParam = url.searchParams.get('version');
+    const version = Number(versionParam);
     const nodeToken = request.headers.get('X-Node-Token') || '';
 
     if (!nodeId) return err('MISSING_PARAM', 'node_id is required', 400);
-    if (!version) return err('MISSING_PARAM', 'version is required', 400);
+    if (!versionParam) return err('MISSING_PARAM', 'version is required', 400);
+    if (!Number.isInteger(version) || version < 1) return err('INVALID_PARAM', 'version must be a positive integer', 400);
     if (!nodeToken) return err('MISSING_TOKEN', 'X-Node-Token header is required', 401);
 
     const KV = env.NODEHUB_KV;

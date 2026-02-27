@@ -1,30 +1,37 @@
-// Global middleware — CORS + global error handler
+const CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Key, X-Node-Token',
+};
+
+function withCors(response) {
+    const headers = new Headers(response.headers);
+    for (const [key, value] of Object.entries(CORS_HEADERS)) {
+        headers.set(key, value);
+    }
+
+    return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+    });
+}
 
 export async function onRequest(context) {
-    const { request } = context;
-
-    // Handle preflight
-    if (request.method === 'OPTIONS') {
+    if (context.request.method === 'OPTIONS') {
         return new Response(null, {
             status: 204,
             headers: {
-                'Access-Control-Allow-Origin': '*',
+                ...CORS_HEADERS,
                 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Key, X-Node-Token',
                 'Access-Control-Max-Age': '86400',
             },
         });
     }
 
     try {
-        const response = await context.next();
-        const cloned = new Response(response.body, response);
-        cloned.headers.set('Access-Control-Allow-Origin', '*');
-        cloned.headers.set('Access-Control-Allow-Headers', 'Content-Type, X-Admin-Key, X-Node-Token');
-        return cloned;
+        return withCors(await context.next());
     } catch (e) {
-        // Catch any unhandled error from downstream handlers and return a JSON error
-        return new Response(JSON.stringify({
+        return withCors(new Response(JSON.stringify({
             success: false,
             error: {
                 code: 'INTERNAL_ERROR',
@@ -34,11 +41,7 @@ export async function onRequest(context) {
             meta: { timestamp: Date.now() },
         }), {
             status: 500,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Key, X-Node-Token',
-            },
-        });
+            headers: { 'Content-Type': 'application/json' },
+        }));
     }
 }
