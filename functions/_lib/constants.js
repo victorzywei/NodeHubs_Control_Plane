@@ -210,7 +210,7 @@ export const BUILTIN_PROFILES = [
         description: 'VLESS over WebSocket+TLS，兼容 CDN，最通用的方案',
         node_types: ['vps', 'cf_worker'],
         defaults: {
-            port: 8443,
+            port: 443,
             path: '/?ed=2560', fingerprint: 'randomized', alpn: ['h2', 'http/1.1'],
         },
     },
