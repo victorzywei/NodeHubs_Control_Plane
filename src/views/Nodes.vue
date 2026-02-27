@@ -155,6 +155,27 @@ function timeAgo(dateStr) {
   if (hours < 24) return `${hours}小时前`
   return `${Math.floor(hours / 24)}天前`
 }
+
+function normalizeHost(raw) {
+  return String(raw || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '')
+}
+
+function openNodeDiagnosisByDomain(domain) {
+  if (!detailNode.value?.id) return
+  const host = normalizeHost(domain)
+  if (!host) return
+  window.open(`https://${host}/${encodeURIComponent(detailNode.value.id)}`, '_blank', 'noopener,noreferrer')
+}
+
+function openNodeDiagnosisByIp(ip) {
+  if (!detailNode.value?.id) return
+  const host = normalizeHost(ip)
+  if (!host) return
+  window.open(`http://${host}/${encodeURIComponent(detailNode.value.id)}`, '_blank', 'noopener,noreferrer')
+}
 </script>
 
 <template>
@@ -316,15 +337,36 @@ function timeAgo(dateStr) {
             </div>
             <div>
               <div class="text-[10px] text-text-muted mb-0.5">CDN 域名</div>
-              <div class="text-xs">{{ detailNode.entry_domain_cdn || detailNode.entry_domain || '-' }}</div>
+              <div class="flex items-center gap-2">
+                <div class="text-xs">{{ detailNode.entry_domain_cdn || detailNode.entry_domain || '-' }}</div>
+                <button
+                  class="text-[10px] px-2 py-0.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition disabled:opacity-40"
+                  :disabled="!(detailNode.entry_domain_cdn || detailNode.entry_domain)"
+                  @click="openNodeDiagnosisByDomain(detailNode.entry_domain_cdn || detailNode.entry_domain)"
+                >节点诊断</button>
+              </div>
             </div>
             <div>
               <div class="text-[10px] text-text-muted mb-0.5">直连域名</div>
-              <div class="text-xs">{{ detailNode.entry_domain_direct || detailNode.entry_domain_cdn || detailNode.entry_domain || '-' }}</div>
+              <div class="flex items-center gap-2">
+                <div class="text-xs">{{ detailNode.entry_domain_direct || detailNode.entry_domain_cdn || detailNode.entry_domain || '-' }}</div>
+                <button
+                  class="text-[10px] px-2 py-0.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition disabled:opacity-40"
+                  :disabled="!(detailNode.entry_domain_direct || detailNode.entry_domain_cdn || detailNode.entry_domain)"
+                  @click="openNodeDiagnosisByDomain(detailNode.entry_domain_direct || detailNode.entry_domain_cdn || detailNode.entry_domain)"
+                >节点诊断</button>
+              </div>
             </div>
             <div>
               <div class="text-[10px] text-text-muted mb-0.5">入口 IP</div>
-              <div class="font-mono text-xs">{{ detailNode.entry_ip || '-' }}</div>
+              <div class="flex items-center gap-2">
+                <div class="font-mono text-xs">{{ detailNode.entry_ip || '-' }}</div>
+                <button
+                  class="text-[10px] px-2 py-0.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition disabled:opacity-40"
+                  :disabled="!detailNode.entry_ip"
+                  @click="openNodeDiagnosisByIp(detailNode.entry_ip)"
+                >节点诊断</button>
+              </div>
             </div>
             <div>
               <div class="text-[10px] text-text-muted mb-0.5">区域</div>
