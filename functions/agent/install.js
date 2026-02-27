@@ -218,8 +218,25 @@ def read_last_lines(path, max_lines=200):
     dq = deque(maxlen=max_lines)
     with open(path, "r", encoding="utf-8", errors="ignore") as fh:
         for line in fh:
-            dq.append(line.rstrip("\n"))
+            dq.append(line.rstrip("\\n"))
     return list(dq)
+
+def read_journal_lines(unit, max_lines=200):
+    try:
+        r = subprocess.run(
+            ["journalctl", "-u", unit, "-n", str(max_lines), "--no-pager", "-o", "cat"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+        )
+        if r.returncode != 0:
+            return []
+        return [ln.rstrip("\\n") for ln in r.stdout.splitlines()]
+    except Exception:
+        return []
 
 
 def get_current_version():
@@ -239,6 +256,10 @@ def extract_recent_errors(lines, max_items=30):
 def build_diag(node_id):
     agent_lines = read_last_lines(AGENT_LOG, 300)
     xray_lines = read_last_lines(XRAY_LOG, 200)
+    if not agent_lines:
+        agent_lines = read_journal_lines("nodehub-agent.service", 300)
+    if not xray_lines:
+        xray_lines = read_journal_lines("xray.service", 200)
     return {
         "node_id": node_id,
         "timestamp": int(time.time()),
@@ -743,10 +764,13 @@ XRAY_PID_FILE="/var/run/nodehub-xray.pid"
 log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
 
 test_xray_config() {
-  if xray run -test -config "$XRAY_CONFIG" >/dev/null 2>&1; then
+  local cfg="$1"
+  local err_file="$2"
+  : > "$err_file"
+  if xray run -test -config "$cfg" >"$err_file" 2>&1; then
     return 0
   fi
-  if xray -test -config "$XRAY_CONFIG" >/dev/null 2>&1; then
+  if xray -test -config "$cfg" >"$err_file" 2>&1; then
     return 0
   fi
   return 1
@@ -842,7 +866,7 @@ while true; do
 
     tmp_cfg=$(mktemp /tmp/nodehub-xray-config.XXXXXX)
     if ! echo "$plan_resp" | /usr/local/bin/nodehub-plan-to-xray > "$tmp_cfg" 2>/tmp/nodehub-apply.err; then
-      msg=$(tr '\n' ' ' < /tmp/nodehub-apply.err | cut -c1-500)
+      msg=$(tr '\\n' ' ' < /tmp/nodehub-apply.err | cut -c1-500)
       log "plan convert failed: $msg"
       report_apply_result "$target_version" "failed" "plan convert failed: $msg"
       rm -f "$tmp_cfg"
@@ -850,8 +874,9 @@ while true; do
       continue
     fi
 
-    if ! xray run -test -config "$tmp_cfg" >/dev/null 2>&1 && ! xray -test -config "$tmp_cfg" >/dev/null 2>&1; then
-      msg="xray config test failed"
+    if ! test_xray_config "$tmp_cfg" /tmp/nodehub-xray-test.err; then
+      test_err=$(tr '\\n' ' ' < /tmp/nodehub-xray-test.err | cut -c1-500)
+      msg="xray config test failed\${test_err:+: $test_err}"
       log "$msg"
       report_apply_result "$target_version" "failed" "$msg"
       rm -f "$tmp_cfg"
@@ -862,7 +887,7 @@ while true; do
     prev_cfg="$XRAY_CONFIG.bak"
     cp "$XRAY_CONFIG" "$prev_cfg" 2>/dev/null || true
     if ! install -m 600 "$tmp_cfg" "$XRAY_CONFIG" 2>/tmp/nodehub-install.err; then
-      msg=$(tr '\n' ' ' < /tmp/nodehub-install.err | cut -c1-500)
+      msg=$(tr '\\n' ' ' < /tmp/nodehub-install.err | cut -c1-500)
       log "xray config install failed: $msg"
       report_apply_result "$target_version" "failed" "xray config install failed: $msg"
       rm -f "$tmp_cfg"
@@ -871,8 +896,9 @@ while true; do
     fi
     rm -f "$tmp_cfg"
 
-    if ! test_xray_config; then
-      msg="xray config test failed"
+    if ! test_xray_config "$XRAY_CONFIG" /tmp/nodehub-xray-test.err; then
+      test_err=$(tr '\\n' ' ' < /tmp/nodehub-xray-test.err | cut -c1-500)
+      msg="xray config test failed\${test_err:+: $test_err}"
       log "$msg"
       if [[ -f "$prev_cfg" ]]; then
         cp "$prev_cfg" "$XRAY_CONFIG" 2>/dev/null || true
@@ -883,7 +909,7 @@ while true; do
     fi
 
     if ! restart_xray >/tmp/nodehub-restart.err 2>&1; then
-      msg=$(tr '\n' ' ' < /tmp/nodehub-restart.err | cut -c1-500)
+      msg=$(tr '\\n' ' ' < /tmp/nodehub-restart.err | cut -c1-500)
       log "xray restart failed: $msg"
       if [[ -f "$prev_cfg" ]]; then
         cp "$prev_cfg" "$XRAY_CONFIG" 2>/dev/null || true
