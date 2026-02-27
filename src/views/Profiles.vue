@@ -88,8 +88,7 @@ function buildFieldGroups(protocol, transport, tlsMode) {
         result.transport = Object.entries(tReg.fields).map(([k, v]) => ({ key: k, ...v }))
     }
     if (sReg) {
-        result.tls = Object.entries(sReg.fields).filter(([, v]) => !v.server_side)
-            .map(([k, v]) => ({ key: k, ...v }))
+        result.tls = Object.entries(sReg.fields).map(([k, v]) => ({ key: k, ...v }))
     }
     return result
 }
@@ -225,6 +224,10 @@ const protocolBg = {
     vless: 'bg-accent', trojan: 'bg-orange-400', vmess: 'bg-blue-400',
     shadowsocks: 'bg-violet-400', hysteria2: 'bg-purple-400',
 }
+
+function supportsCdn(profile) {
+    return Array.isArray(profile?.node_types) && profile.node_types.includes('cf_worker')
+}
 </script>
 
 <template>
@@ -273,6 +276,10 @@ const protocolBg = {
                                   :class="protocolColors[p.protocol] || 'text-text-secondary'">{{ p.protocol }}</span>
                             <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-text-secondary">{{ p.transport }}</span>
                             <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-text-secondary">{{ p.tls_mode }}</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded font-medium"
+                                  :class="supportsCdn(p) ? 'bg-worker/15 text-worker' : 'bg-white/5 text-text-muted'">
+                                {{ supportsCdn(p) ? '支持 CDN' : '不支持 CDN' }}
+                            </span>
                             <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-text-muted font-mono">:{{ p.defaults?.port || 443 }}</span>
                         </div>
                     </div>
@@ -570,6 +577,10 @@ const protocolBg = {
                                   style="background: rgba(255,255,255,0.05);">{{ detailProfile.protocol }}</span>
                             <span class="text-xs px-2.5 py-1 rounded-lg bg-white/5 text-text-secondary">{{ detailProfile.transport }}</span>
                             <span class="text-xs px-2.5 py-1 rounded-lg bg-white/5 text-text-secondary">{{ detailProfile.tls_mode }}</span>
+                            <span v-if="detailProfile.is_builtin" class="text-xs px-2.5 py-1 rounded-lg font-medium"
+                                  :class="supportsCdn(detailProfile) ? 'bg-worker/15 text-worker' : 'bg-white/5 text-text-muted'">
+                                {{ supportsCdn(detailProfile) ? '支持 CDN' : '不支持 CDN' }}
+                            </span>
                         </div>
                         <div>
                             <div class="text-[10px] text-text-muted mb-2 uppercase tracking-wide">适用节点类型</div>

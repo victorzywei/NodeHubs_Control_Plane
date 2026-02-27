@@ -88,10 +88,12 @@ export async function onRequestPost(context) {
 
             if (needsReality) {
                 const hasPrivate = hasNonEmptyString(nodeParams.reality_private_key) || hasNonEmptyString(nodeParams.private_key);
-                if (!hasPrivate) {
+                const hasPublic = hasNonEmptyString(nodeParams.public_key);
+                if (!hasPrivate || !hasPublic) {
                     const { publicKey, privateKey } = await generateRealityKeyPair();
+                    // If either side is missing, replace with a fresh consistent key-pair.
                     nodeParams.reality_private_key = privateKey;
-                    // Keep generated key-pair consistent for this plan.
+                    nodeParams.private_key = privateKey;
                     nodeParams.public_key = publicKey;
                 }
             }

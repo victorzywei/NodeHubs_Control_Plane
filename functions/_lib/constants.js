@@ -152,8 +152,8 @@ export const TLS_REGISTRY = {
         name: 'Reality',
         fields: {
             sni: { type: 'string', default: 'www.microsoft.com', label: 'SNI (伪装域名)' },
-            public_key: { type: 'string', required: true, label: '公钥 (Public Key)' },
-            private_key: { type: 'string', default: '', label: '私钥 (Private Key)', hint: '仅 VPS 端需要', server_side: true },
+            public_key: { type: 'string', required: true, label: '公钥 (Public Key)', hint: '可留空，部署时自动与私钥成对生成' },
+            private_key: { type: 'string', default: '', label: '私钥 (Private Key)', hint: '仅 VPS 端需要；可留空自动生成并与公钥匹配', server_side: true },
             short_id: { type: 'string', default: '', label: 'Short ID' },
             fingerprint: {
                 type: 'select', options: [
