@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, inject, onMounted } from 'vue'
 import { api } from '../api.js'
 
@@ -47,11 +47,11 @@ const profilesWithCompat = computed(() => {
       const hasMatch = [...selectedNodeTypes.value].some(nt => nodeTypes.includes(nt))
       if (!hasMatch) {
         compatible = false
-        warning = '与已选节点类型不兼容'
+        warning = '涓庡凡閫夎妭鐐圭被鍨嬩笉鍏煎'
       } else if (selectedNodeTypes.value.size > 1) {
         const missingTypes = [...selectedNodeTypes.value].filter(nt => !nodeTypes.includes(nt))
         if (missingTypes.length > 0) {
-          warning = `不适用: ${missingTypes.map(t => t === 'vps' ? 'VPS' : 'Worker').join(', ')}`
+          warning = `涓嶉€傜敤: ${missingTypes.map(t => t === 'vps' ? 'VPS' : 'Worker').join(', ')}`
         }
       }
     }
@@ -153,15 +153,15 @@ function getDeployAgentNames(deploy) {
 
 <template>
   <div class="p-6 lg:p-8">
-    <h1 class="text-xl font-semibold mb-6">发布部署</h1>
+    <h1 class="text-xl font-semibold mb-6">鍙戝竷閮ㄧ讲</h1>
 
     <div class="glass-card p-6 mb-5">
       <h3 class="font-semibold text-sm mb-4 flex items-center gap-2">
-        <span>🚀</span> 新建发布
+        <span>馃殌</span> 鏂板缓鍙戝竷
       </h3>
 
       <div class="mb-5">
-        <label class="block text-xs font-medium text-text-secondary mb-2">选择目标节点</label>
+        <label class="block text-xs font-medium text-text-secondary mb-2">閫夋嫨鐩爣鑺傜偣</label>
         <div class="flex flex-wrap gap-2 mb-2">
           <button
             v-for="n in nodes"
@@ -181,14 +181,14 @@ function getDeployAgentNames(deploy) {
           </button>
         </div>
         <div class="flex gap-2">
-          <button @click="selectNodes('all')" class="text-[10px] px-2.5 py-1 rounded bg-white/5 text-text-muted hover:text-text-secondary transition">全选</button>
-          <button @click="selectNodes('vps')" class="text-[10px] px-2.5 py-1 rounded bg-white/5 text-text-muted hover:text-text-secondary transition">仅 VPS</button>
-          <button @click="selectNodes('worker')" class="text-[10px] px-2.5 py-1 rounded bg-white/5 text-text-muted hover:text-text-secondary transition">仅 Worker</button>
+          <button @click="selectNodes('all')" class="text-[10px] px-2.5 py-1 rounded bg-white/5 text-text-muted hover:text-text-secondary transition">鍏ㄩ€</button>
+          <button @click="selectNodes('vps')" class="text-[10px] px-2.5 py-1 rounded bg-white/5 text-text-muted hover:text-text-secondary transition">浠?VPS</button>
+          <button @click="selectNodes('worker')" class="text-[10px] px-2.5 py-1 rounded bg-white/5 text-text-muted hover:text-text-secondary transition">浠?Worker</button>
         </div>
       </div>
 
       <div class="mb-5">
-        <label class="block text-xs font-medium text-text-secondary mb-2">选择协议配置</label>
+        <label class="block text-xs font-medium text-text-secondary mb-2">閫夋嫨鍗忚閰嶇疆</label>
         <div class="flex flex-wrap gap-2">
           <button
             v-for="p in profilesWithCompat"
@@ -215,68 +215,67 @@ function getDeployAgentNames(deploy) {
           </button>
         </div>
         <div v-if="selectedNodeTypes.size > 0" class="text-[10px] text-text-muted mt-1.5">
-          已按所选节点类型过滤兼容性，灰色配置表示不兼容
-        </div>
+          宸叉寜鎵€閫夎妭鐐圭被鍨嬭繃婊ゅ吋瀹规€э紝鐏拌壊閰嶇疆琛ㄧず涓嶅吋瀹?        </div>
       </div>
 
       <div class="mb-5">
-        <label class="block text-xs font-medium text-text-secondary mb-2">部署参数 (JSON, 可选)</label>
+        <label class="block text-xs font-medium text-text-secondary mb-2">閮ㄧ讲鍙傛暟 (JSON, 鍙€?</label>
         <textarea
           v-model="deployParams"
           class="form-input font-mono text-xs resize-y"
           rows="3"
           placeholder='{"listen_port": 8443, "uuid": "...", "cf_port": 8443, "proxyip": "..."}'
         />
-        <div class="text-[10px] text-text-muted mt-1">可指定共享 UUID、密码、端口、ProxyIP 等参数，留空使用默认值</div>
+        <div class="text-[10px] text-text-muted mt-1">鍙寚瀹氬叡浜?UUID銆佸瘑鐮併€佺鍙ｃ€丳roxyIP 绛夊弬鏁帮紝鐣欑┖浣跨敤榛樿鍊</div>
       </div>
 
       <button @click="doDeploy" class="btn-primary flex items-center gap-2">
-        <span>🚀</span> 执行发布
+        <span>馃殌</span> 鎵ц鍙戝竷
       </button>
     </div>
 
     <div class="glass-card p-6">
       <h3 class="font-semibold text-sm mb-4 flex items-center gap-2">
-        <span>📜</span> 部署历史
+        <span>馃摐</span> 閮ㄧ讲鍘嗗彶
       </h3>
 
       <div v-if="deploys.length === 0" class="text-center py-10">
-        <div class="text-3xl mb-2">📜</div>
-        <div class="text-text-muted text-sm">还没有部署记录</div>
+        <div class="text-3xl mb-2">馃摐</div>
+        <div class="text-text-muted text-sm">杩樻病鏈夐儴缃茶褰</div>
       </div>
 
       <table v-else class="data-table">
-        <thead>
+                <thead>
           <tr>
-            <th>版本</th>
             <th>代理端</th>
+            <th>版本</th>
             <th>时间</th>
-            <th>节点数</th>
-            <th>配置</th>
-            <th>结果</th>
+            <th>应用结果</th>
+            <th>协议配置</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="d in deploys" :key="d.id">
-            <td>
-              <span class="text-xs font-mono px-2 py-1 rounded bg-white/5 text-text-secondary">{{ getDeployVersionLabel(d) }}</span>
-            </td>
+                    <tr v-for="d in deploys" :key="d.id">
             <td class="text-xs text-text-secondary">
               {{ getDeployAgentNames(d).slice(0, 3).join(', ') || '-' }}
               <span v-if="getDeployAgentNames(d).length > 3"> +{{ getDeployAgentNames(d).length - 3 }}</span>
             </td>
+            <td>
+              <span class="text-xs font-mono px-2 py-1 rounded bg-white/5 text-text-secondary">{{ getDeployVersionLabel(d) }}</span>
+            </td>
             <td class="text-xs text-text-muted">{{ new Date(d.created_at).toLocaleString('zh-CN') }}</td>
-            <td class="text-xs">{{ d.results?.length || 0 }} 节点</td>
-            <td class="text-xs text-text-muted font-mono">{{ getDeployConfigNames(d).join(', ') || '-' }}</td>
             <td>
               <div class="flex items-center gap-1.5">
                 <span class="status-dot" :class="(d.results?.filter(r => r.status === 'deployed').length || 0) === (d.results?.length || 0) ? 'status-dot-online' : 'status-dot-warning'" />
                 <span class="text-xs">{{ d.results?.filter(r => r.status === 'deployed').length || 0 }}/{{ d.results?.length || 0 }}</span>
               </div>
             </td>
+            <td class="text-xs text-text-muted font-mono">{{ getDeployConfigNames(d).join(', ') || '-' }}</td>
           </tr>
         </tbody>
       </table>
     </div>
   </div>
 </template>
+
+
