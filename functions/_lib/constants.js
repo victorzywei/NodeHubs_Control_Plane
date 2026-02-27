@@ -1,4 +1,4 @@
-// ==========================================
+﻿// ==========================================
 // NodeHub Protocol Registry System
 // 分层协议注册表 — 参考 3x-ui 协议配置模式
 // ==========================================
@@ -215,19 +215,6 @@ export const BUILTIN_PROFILES = [
         },
     },
     {
-        id: 'vless-ws-none',
-        name: 'VLESS+WS (无TLS)',
-        protocol: 'vless',
-        transport: 'ws',
-        tls_mode: 'none',
-        is_builtin: true,
-        description: 'VLESS over WebSocket 无 TLS，适用 CF 80 系端口',
-        node_types: ['cf_worker'],
-        defaults: {
-            path: '/?ed=2560',
-        },
-    },
-    {
         id: 'vless-reality-tcp',
         name: 'VLESS+Reality+TCP',
         protocol: 'vless',
@@ -237,7 +224,7 @@ export const BUILTIN_PROFILES = [
         description: 'VLESS+Reality 直连方案，极强抗检测，仅 VPS',
         node_types: ['vps'],
         defaults: {
-            port: 443,
+            port: 49443,
             sni: 'www.microsoft.com', fingerprint: 'chrome',
             flow: 'xtls-rprx-vision',
         },
@@ -252,6 +239,7 @@ export const BUILTIN_PROFILES = [
         description: 'VLESS over gRPC+TLS，支持多路复用，仅 VPS',
         node_types: ['vps'],
         defaults: {
+            port: 2053,
             service_name: 'grpc', fingerprint: 'chrome',
         },
     },
@@ -266,7 +254,7 @@ export const BUILTIN_PROFILES = [
         description: 'Trojan over WebSocket+TLS，兼容 CDN',
         node_types: ['vps', 'cf_worker'],
         defaults: {
-            port: 9443,
+            port: 8443,
             path: '/trojan-ws', fingerprint: 'chrome',
         },
     },
@@ -280,22 +268,7 @@ export const BUILTIN_PROFILES = [
         description: 'Trojan 经典 TCP 方案，性能最佳，仅 VPS',
         node_types: ['vps'],
         defaults: {
-            fingerprint: 'chrome',
-        },
-    },
-    // ── VMess 系列 ──
-    {
-        id: 'vmess-ws-tls',
-        name: 'VMess+WS+TLS',
-        protocol: 'vmess',
-        transport: 'ws',
-        tls_mode: 'tls',
-        is_builtin: true,
-        description: 'VMess over WebSocket+TLS，兼容性好',
-        node_types: ['vps'],
-        defaults: {
-            port: 10443,
-            path: '/vmess-ws', alter_id: 0, encryption: 'auto',
+            port: 2087,
             fingerprint: 'chrome',
         },
     },
@@ -310,6 +283,7 @@ export const BUILTIN_PROFILES = [
         description: 'Shadowsocks 2022 新协议，高性能',
         node_types: ['vps'],
         defaults: {
+            port: 49445,
             method: '2022-blake3-aes-128-gcm',
         },
     },
@@ -324,7 +298,7 @@ export const BUILTIN_PROFILES = [
         description: 'Hysteria2 QUIC 协议，高速低延迟',
         node_types: ['vps'],
         defaults: {
-            port: 443,
+            port: 49444,
             up_mbps: 100, down_mbps: 100, fingerprint: 'chrome',
         },
     },
@@ -440,3 +414,4 @@ export function getProfileSchema(profile) {
     }
     return base;
 }
+
