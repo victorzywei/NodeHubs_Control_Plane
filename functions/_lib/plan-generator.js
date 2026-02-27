@@ -74,6 +74,16 @@ function generateVpsPlan(node, profiles, params, version) {
         };
     });
 
+    for (const inbound of inbounds) {
+        if (inbound.tls_mode !== 'reality') continue;
+        const pk = inbound.settings.reality_private_key || inbound.settings.private_key || '';
+        if (!pk) {
+            throw new Error(
+                `${inbound.tag}: reality requires settings.reality_private_key (or settings.private_key)`
+            );
+        }
+    }
+
     return {
         version,
         node_id: node.id,
@@ -154,8 +164,8 @@ function resolveProfileParams(profile, params, node, nodeType) {
     const resolved = {};
 
     for (const [field, def] of Object.entries(schema)) {
-        // Skip server-side only fields for client config
-        if (def.server_side) continue;
+        // Keep server-side fields for VPS plan generation.
+        if (def.server_side && nodeType !== 'vps') continue;
 
         // Priority: user params > node auto-fill > profile defaults > schema defaults > auto-generate
         if (params[field] !== undefined) {

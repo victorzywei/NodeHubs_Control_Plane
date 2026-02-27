@@ -3,8 +3,41 @@
 import { verifyAdmin } from '../_lib/auth.js';
 import { kvGet, kvPut, idxAdd, nextVersion, generateId, KEY } from '../_lib/kv.js';
 import { ok, err } from '../_lib/response.js';
-import { generatePlan } from '../_lib/plan-generator.js';
+import { generatePlan, isProfileCompatible } from '../_lib/plan-generator.js';
 import { BUILTIN_PROFILES, PLAN_RETENTION_COUNT } from '../_lib/constants.js';
+
+function hasNonEmptyString(value) {
+    return typeof value === 'string' && value.trim() !== '';
+}
+
+async function generateRealityKeyPair() {
+    try {
+        if (!globalThis.crypto?.subtle) {
+            throw new Error('WebCrypto is unavailable');
+        }
+
+        const keyPair = await crypto.subtle.generateKey(
+            { name: 'X25519' },
+            true,
+            ['deriveBits']
+        );
+
+        const [publicJwk, privateJwk] = await Promise.all([
+            crypto.subtle.exportKey('jwk', keyPair.publicKey),
+            crypto.subtle.exportKey('jwk', keyPair.privateKey),
+        ]);
+
+        const publicKey = publicJwk?.x || '';
+        const privateKey = privateJwk?.d || '';
+        if (!publicKey || !privateKey) {
+            throw new Error('Missing exported key material');
+        }
+
+        return { publicKey, privateKey };
+    } catch {
+        throw new Error('Auto Reality key generation failed. Please provide params.reality_private_key and params.public_key manually.');
+    }
+}
 
 export async function onRequestPost(context) {
     const { request, env } = context;
@@ -49,7 +82,21 @@ export async function onRequestPost(context) {
         }
 
         try {
-            const plan = generatePlan(node, profiles, deployParams, ver);
+            const applicableProfiles = profiles.filter((p) => isProfileCompatible(p, node));
+            const needsReality = node.node_type === 'vps' && applicableProfiles.some((p) => p.tls_mode === 'reality');
+            const nodeParams = { ...deployParams };
+
+            if (needsReality) {
+                const hasPrivate = hasNonEmptyString(nodeParams.reality_private_key) || hasNonEmptyString(nodeParams.private_key);
+                if (!hasPrivate) {
+                    const { publicKey, privateKey } = await generateRealityKeyPair();
+                    nodeParams.reality_private_key = privateKey;
+                    // Keep generated key-pair consistent for this plan.
+                    nodeParams.public_key = publicKey;
+                }
+            }
+
+            const plan = generatePlan(node, profiles, nodeParams, ver);
             await kvPut(KV, KEY.plan(nid, ver), plan);
 
             node.target_version = ver;
