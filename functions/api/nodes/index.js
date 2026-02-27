@@ -11,6 +11,19 @@ function withOnlineState(node) {
     return { ...node, is_online: Date.now() - lastSeen < ONLINE_THRESHOLD_MS };
 }
 
+function normalizeNodeDomains(node) {
+    const cdn = typeof node.entry_domain_cdn === 'string' ? node.entry_domain_cdn : (node.entry_domain || '');
+    const directRaw = typeof node.entry_domain_direct === 'string' ? node.entry_domain_direct : '';
+    const direct = directRaw || cdn;
+    return {
+        ...node,
+        entry_domain_cdn: cdn,
+        entry_domain_direct: direct,
+        // Keep legacy field for backward compatibility with old clients.
+        entry_domain: cdn,
+    };
+}
+
 export async function onRequestGet(context) {
     const { request, env } = context;
     const auth = verifyAdmin(request, env);
@@ -18,7 +31,7 @@ export async function onRequestGet(context) {
 
     const KV = env.NODEHUB_KV;
     const nodes = await idxHydrate(KV, KEY.idxNodes(), KEY.node);
-    return ok(nodes.map(withOnlineState));
+    return ok(nodes.map(normalizeNodeDomains).map(withOnlineState));
 }
 
 export async function onRequestPost(context) {
@@ -33,11 +46,15 @@ export async function onRequestPost(context) {
     if (!body.node_type) return err('VALIDATION', 'node_type is required', 400);
 
     const nid = generateId('n');
+    const entryDomainCdn = (body.entry_domain_cdn || body.entry_domain || '').trim();
+    const entryDomainDirect = (body.entry_domain_direct || '').trim() || entryDomainCdn;
     const node = {
         id: nid,
         name: body.name,
         node_type: body.node_type,
-        entry_domain: body.entry_domain || '',
+        entry_domain: entryDomainCdn,
+        entry_domain_cdn: entryDomainCdn,
+        entry_domain_direct: entryDomainDirect,
         entry_ip: body.entry_ip || '',
         region: body.region || '',
         tags: body.tags || [],

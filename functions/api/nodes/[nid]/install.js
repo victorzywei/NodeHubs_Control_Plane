@@ -24,7 +24,11 @@ export async function onRequestGet(context) {
     const origin = new URL(request.url).origin;
     const scriptUrl = `${origin}/agent/install`;
     const githubMirror = typeof node.github_mirror === 'string' ? node.github_mirror.trim() : '';
-    const tlsDomain = typeof node.entry_domain === 'string' ? node.entry_domain.trim() : '';
+    const tlsDomain = typeof node.entry_domain_cdn === 'string'
+        ? node.entry_domain_cdn.trim()
+        : (typeof node.entry_domain === 'string' ? node.entry_domain.trim() : '');
+    const tlsDomainAltRaw = typeof node.entry_domain_direct === 'string' ? node.entry_domain_direct.trim() : '';
+    const tlsDomainAlt = tlsDomainAltRaw && tlsDomainAltRaw !== tlsDomain ? tlsDomainAltRaw : '';
     const cfApiToken = typeof node.cf_api_token === 'string' ? node.cf_api_token.trim() : '';
     const cfZoneId = typeof node.cf_zone_id === 'string' ? node.cf_zone_id.trim() : '';
     const command = [
@@ -36,6 +40,7 @@ export async function onRequestGet(context) {
         ' --poll-interval 15',
         ...(githubMirror ? [` --github-mirror ${shellQuote(githubMirror)}`] : []),
         ...(tlsDomain ? [` --tls-domain ${shellQuote(tlsDomain)}`] : []),
+        ...(tlsDomainAlt ? [` --tls-domain-alt ${shellQuote(tlsDomainAlt)}`] : []),
         ...(cfApiToken ? [` --cf-api-token ${shellQuote(cfApiToken)}`] : []),
         ...(cfZoneId ? [` --cf-zone-id ${shellQuote(cfZoneId)}`] : []),
     ].join('');

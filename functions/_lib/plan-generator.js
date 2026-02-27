@@ -155,6 +155,17 @@ function resolveProfile(profile) {
     return builtin || profile;
 }
 
+function supportsCdnProfile(profile) {
+    return Array.isArray(profile?.node_types) && profile.node_types.includes('cf_worker');
+}
+
+function resolveEntryDomain(node, profile) {
+    const cdnDomain = cleanDomain(node.entry_domain_cdn || node.entry_domain || '');
+    const directDomain = cleanDomain(node.entry_domain_direct || '');
+    const directFallback = directDomain || cdnDomain;
+    return supportsCdnProfile(profile) ? cdnDomain : directFallback;
+}
+
 /**
  * Resolve parameters based on registry schema
  * Merges: profile defaults → node info → user params
@@ -162,6 +173,7 @@ function resolveProfile(profile) {
 function resolveProfileParams(profile, params, node, nodeType) {
     const schema = getProfileSchema(profile);
     const resolved = {};
+    const selectedDomain = resolveEntryDomain(node, profile);
 
     for (const [field, def] of Object.entries(schema)) {
         // Keep server-side fields for VPS plan generation.
@@ -170,10 +182,10 @@ function resolveProfileParams(profile, params, node, nodeType) {
         // Priority: user params > node auto-fill > profile defaults > schema defaults > auto-generate
         if (params[field] !== undefined) {
             resolved[field] = params[field];
-        } else if (field === 'host' && node.entry_domain) {
-            resolved[field] = cleanDomain(node.entry_domain);
-        } else if (field === 'sni' && node.entry_domain) {
-            resolved[field] = cleanDomain(node.entry_domain);
+        } else if (field === 'host' && selectedDomain) {
+            resolved[field] = selectedDomain;
+        } else if (field === 'sni' && selectedDomain) {
+            resolved[field] = selectedDomain;
         } else if (def.auto === 'uuid') {
             resolved[field] = params.uuid || generateUUID();
         } else if (def.auto === 'password') {
@@ -199,6 +211,8 @@ function resolveProfileParams(profile, params, node, nodeType) {
         if (params.tls_key_file) resolved.tls_key_file = params.tls_key_file;
         if (params.reality_private_key) resolved.reality_private_key = params.reality_private_key;
     }
+
+    if (selectedDomain) resolved.entry_domain = selectedDomain;
 
     return resolved;
 }

@@ -60,7 +60,11 @@ export async function renderSubscription(kv, sub, format = 'v2ray') {
         const entries = plan.inbounds || (plan.runtime_config?.configs || []);
         for (const entry of entries) {
             const settings = entry.settings || {};
-            const addr = cleanDomain(node.entry_domain) || node.entry_ip || '127.0.0.1';
+            const addr = cleanDomain(settings.entry_domain)
+                || cleanDomain(node.entry_domain_cdn || node.entry_domain)
+                || cleanDomain(node.entry_domain_direct)
+                || node.entry_ip
+                || '127.0.0.1';
             const port = resolvePlanPort(plan, entry);
             if (port === undefined || port === null || port === '') continue;
             const isHttpPort = CF_PORTS_HTTP.includes(parseInt(port, 10));

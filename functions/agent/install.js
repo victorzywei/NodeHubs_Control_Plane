@@ -11,6 +11,7 @@ NODE_TOKEN=""
 POLL_INTERVAL=15
 GITHUB_MIRROR=""
 TLS_DOMAIN=""
+TLS_DOMAIN_ALT=""
 CF_API_TOKEN=""
 CF_ZONE_ID=""
 XRAY_CONFIG="/usr/local/etc/xray/config.json"
@@ -20,7 +21,7 @@ STATE_DIR="/var/lib/nodehub"
 usage() {
   cat <<'EOF'
 Usage:
-  bash install.sh --api-base <url> --node-id <id> --node-token <token> [--poll-interval 15] [--github-mirror <url>] [--tls-domain <domain>] [--cf-api-token <token>] [--cf-zone-id <zone_id>]
+  bash install.sh --api-base <url> --node-id <id> --node-token <token> [--poll-interval 15] [--github-mirror <url>] [--tls-domain <domain>] [--tls-domain-alt <domain>] [--cf-api-token <token>] [--cf-zone-id <zone_id>]
 EOF
 }
 
@@ -47,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --poll-interval) POLL_INTERVAL="$2"; shift 2 ;;
     --github-mirror) GITHUB_MIRROR="$2"; shift 2 ;;
     --tls-domain) TLS_DOMAIN="$2"; shift 2 ;;
+    --tls-domain-alt) TLS_DOMAIN_ALT="$2"; shift 2 ;;
     --cf-api-token) CF_API_TOKEN="$2"; shift 2 ;;
     --cf-zone-id) CF_ZONE_ID="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -72,6 +74,14 @@ fi
 if [[ -n "$TLS_DOMAIN" && ! "$TLS_DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
   echo "Warning: invalid --tls-domain value '$TLS_DOMAIN', skip automatic TLS certificate setup."
   TLS_DOMAIN=""
+fi
+
+if [[ -n "$TLS_DOMAIN_ALT" && ! "$TLS_DOMAIN_ALT" =~ ^[A-Za-z0-9.-]+$ ]]; then
+  echo "Warning: invalid --tls-domain-alt value '$TLS_DOMAIN_ALT', ignore alternate TLS domain."
+  TLS_DOMAIN_ALT=""
+fi
+if [[ -n "$TLS_DOMAIN_ALT" && "$TLS_DOMAIN_ALT" == "$TLS_DOMAIN" ]]; then
+  TLS_DOMAIN_ALT=""
 fi
 
 install_base_packages() {
@@ -253,6 +263,9 @@ install_tls_certificate() {
   fi
 
   echo "Setting up TLS certificate for domain: $TLS_DOMAIN"
+  if [[ -n "$TLS_DOMAIN_ALT" ]]; then
+    echo "Including alternate TLS domain: $TLS_DOMAIN_ALT"
+  fi
   mkdir -p /etc/ssl/certs /etc/ssl/private
 
   if command -v apt-get >/dev/null 2>&1; then
@@ -282,6 +295,10 @@ install_tls_certificate() {
   fi
 
   "$ACME_BIN" --set-default-ca --server letsencrypt >/dev/null 2>&1 || true
+  local domain_args=("-d" "$TLS_DOMAIN")
+  if [[ -n "$TLS_DOMAIN_ALT" ]]; then
+    domain_args+=("-d" "$TLS_DOMAIN_ALT")
+  fi
 
   if [[ -n "$CF_API_TOKEN" ]]; then
     echo "Issuing certificate via Cloudflare DNS API..."
@@ -289,14 +306,14 @@ install_tls_certificate() {
     if [[ -n "$CF_ZONE_ID" ]]; then
       export CF_Zone_ID="$CF_ZONE_ID"
     fi
-    if ! "$ACME_BIN" --issue -d "$TLS_DOMAIN" --dns dns_cf --keylength ec-256; then
+    if ! "$ACME_BIN" --issue "\${domain_args[@]}" --dns dns_cf --keylength ec-256; then
       echo "Error: failed to issue certificate via Cloudflare DNS for $TLS_DOMAIN"
       echo "Check CF token permissions (Zone.DNS Edit + Zone.Zone Read) and zone scope."
       exit 1
     fi
   else
     echo "Issuing certificate via standalone HTTP challenge..."
-    if ! "$ACME_BIN" --issue -d "$TLS_DOMAIN" --standalone --keylength ec-256; then
+    if ! "$ACME_BIN" --issue "\${domain_args[@]}" --standalone --keylength ec-256; then
       echo "Error: failed to issue certificate for $TLS_DOMAIN"
       echo "Either provide --cf-api-token for DNS mode, or make sure ports 80/443 are reachable and not occupied."
       exit 1
@@ -724,6 +741,9 @@ if [[ -n "$GITHUB_MIRROR" ]]; then
 fi
 if [[ -n "$TLS_DOMAIN" ]]; then
   echo "  TLS Domain: $TLS_DOMAIN"
+  if [[ -n "$TLS_DOMAIN_ALT" ]]; then
+    echo "  TLS Domain Alt: $TLS_DOMAIN_ALT"
+  fi
   if [[ -n "$CF_API_TOKEN" ]]; then
     echo "  TLS Mode  : Cloudflare DNS"
   else
